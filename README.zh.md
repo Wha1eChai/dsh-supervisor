@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区控制面插件。它提供可替换的 `ctx.fleet` 服务，用于观察和控制同一个 `dsh` 进程中的 live Session，而不是再实现一套 Agent runtime。
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区控制面插件。它提供可替换的 `ctx.fleet` 服务，用于观察和控制同一个 `dsh` 进程中的 live Session，并通过该服务提供模型可调用的 `fleet_*` 工具。
 
-> **状态：Service Preview（L0 + L1）。** Fleet 服务已经实现并通过测试，但模型可调用的 `fleet_*` 工具尚未提供。
+> **状态：Tool Preview（L0 + L1 + L2）。** Fleet 服务和五个工具 Consumer 已经实现，并通过 package entry 的 keyless 测试。
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
@@ -15,11 +15,11 @@ DeepSeek Harness 把能力设计成可热替换的插件缝。本项目遵循相
 ```text
 FleetService                  Service Definition（ctx.fleet）
 InProcessFleetProvider        默认 Provider（ctx.agents）
-fleet_* tools                 计划中的 Consumer（L2）
+fleet_* tools                 Consumer（ctx.fleet + ctx.tools）
 supervisor preset / transport 计划中的 Consumer（L3+）
 ```
 
-本插件不替换已有的 subagent 或 workflow runtime：
+工具 Consumer 不导入 Agent 或 Subagent API，也不访问 `ctx.agents`、`ctx.sessions` 或 `ctx.subagents`。本插件不替换已有的 subagent 或 workflow runtime：
 
 - delegated Session 的继续写入和中断属于 `ctx.subagents`；
 - 编排属于 `ctx.workflowEngine`；
@@ -29,7 +29,7 @@ supervisor preset / transport 计划中的 Consumer（L3+）
 
 ## 当前能力
 
-`ctx.fleet` 当前提供：
+`ctx.fleet` 提供：
 
 - `list()` — 列出当前进程的 live Agent；
 - `inspect()` — 返回有限且 JSON-safe 的对话摘要；
@@ -38,9 +38,15 @@ supervisor preset / transport 计划中的 Consumer（L3+）
 - `cancel()` — 使用稳定 Fleet 原因取消 live root Agent；
 - `subscribe()` — 观察投影后的 created/status/disposed 事件。
 
-L1 会正确分类 delegated Agent，但不会写入它们。Provider 不会绕过 `ctx.subagents` 直接调用 child `Agent` 方法，也会拒绝调用方控制自己。
+独立入口 `@wha1echai/dsh-supervisor/tool` 注册：
 
-API、配置和错误码见 [docs/reference/fleet.md](docs/reference/fleet.md)。
+- 所有模式都有 `fleet_list` 和 `fleet_inspect`；
+- `message` 和 `full` 模式增加 `fleet_send` 与 `fleet_steer`；
+- 只有 `full` 模式增加 `fleet_cancel`。
+
+`controlMode` 默认是 `read-only`。写工具只从 owning Agent Session 派生 caller identity；没有 owning Agent 时直接失败；self/delegated 权限继续由 `ctx.fleet` 判断。L2 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
+
+API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fleet.md)。
 
 ## 运行要求
 
@@ -95,18 +101,27 @@ allowBuilds:
 
 ## 使用
 
-L1 是供其他插件消费的服务层。Consumer 把 `fleet` 声明为必需服务，并且只使用 `ctx.fleet`：
+Bundle 会安装两个 package entry。安全默认值只暴露 `fleet_list` 和 `fleet_inspect`。如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-supervisor-tools` 行：
+
+```yaml
+- id: dsh-supervisor-tools
+  name: '@wha1echai/dsh-supervisor/tool'
+  config:
+    controlMode: message # read-only | message | full
+```
+
+只有在明确允许模型取消其他 root Session 的 profile 中才使用 `full`。`controlMode` 只选择工具可见性，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()` 策略。
+
+其他插件也可以把 `fleet` 声明为必需服务，直接消费 JSON-safe Fleet API：
 
 ```ts
 export const inject = ['fleet']
 
 export function apply(ctx: Context) {
   const live = ctx.fleet.list()
-  // 使用 JSON-safe 视图注册工具、命令、UI adapter 或 transport。
+  // 使用 JSON-safe 视图构建其他命令、UI adapter 或 transport。
 }
 ```
-
-安装当前 Bundle 不会增加模型可见工具。L2 将提供标准 `fleet_*` Consumer。
 
 ## 开发
 
@@ -118,18 +133,19 @@ pnpm run build
 pnpm pack
 ```
 
-测试套件包含真实 Loader composition：通过 test-only `cordis.yml` 导入构建后的包，验证 namespace plugin 入口、Fleet 激活和卸载。
+测试使用真实 `ToolRuntime`，验证 canonical value 和模型可见内容，并通过官方 Loader + Include 从 test-only `cordis.yml` 加载两个构建后的 package entry。测试还明确防止两个 namespace entry 出现 `default` export，并验证 Provider/Consumer 卸载。
 
 ## 路线 / TODO
 
 - [x] **L0** — 可安装 Bundle、构建、包元数据、真实 Loader smoke。
 - [x] **L1** — `FleetService`、进程内 Provider、生命周期隔离、keyless 测试。
-- [ ] **L2** — `fleet_list`、`fleet_inspect`、`fleet_send`、`fleet_steer`、`fleet_cancel` 工具 Consumer。
+- [x] **L2** — `fleet_list`、`fleet_inspect`、`fleet_send`、`fleet_steer`、`fleet_cancel` 工具 Consumer。
+- [ ] **L2b** — 通过公开 subagent seam、携带精确 parent authority 的 delegated Session 写 API。
 - [ ] **L3** — 使用 Fleet 和现有 workflow 缝的 supervisor agent preset。
 - [ ] **L4** — 独立 profile 和本地传输。
 - [ ] **L5** — 可选的 Electron 壳，只负责启动并连接 `dsh`。
 - [ ] **L6** — daemon 和多 Runtime Fleet Provider。
-- [ ] 完成 L2 用户可见验证后发布第一个 registry 包。
+- [ ] 完成用户可见验证后发布第一个 registry 包。
 - [ ] 为每个支持的 DSH release candidate 添加兼容性 CI。
 
 详细阶段边界见 [docs/plan/layers.md](docs/plan/layers.md)。
@@ -145,7 +161,7 @@ pnpm pack
 
 ## 参与贡献
 
-欢迎通过本仓库提交 bug、设计反馈和范围清晰的 Pull Request。贡献必须保留 capability seam：Consumer 依赖 `ctx.fleet`，delegated 写入走 `ctx.subagents`，编排留在 `ctx.workflowEngine`。
+欢迎通过本仓库提交 bug、设计反馈和范围清晰的 Pull Request。贡献必须保留 capability seam：Consumer 依赖 `ctx.fleet`，delegated 写入通过未来的 Fleet API 接入 `ctx.subagents`，编排留在 `ctx.workflowEngine`。
 
 ## 协议
 

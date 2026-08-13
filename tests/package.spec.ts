@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as plugin from '../src/index.js'
+import * as toolPlugin from '../src/tool.js'
 
 describe('package entry point', () => {
   it('keeps the Loader-safe namespace plugin shape', () => {
@@ -14,6 +15,17 @@ describe('package entry point', () => {
     expect(unwrapped.apply).toBe(plugin.apply)
     expect(plugin.FleetService).toBeTypeOf('function')
     expect(plugin.InProcessFleetProvider).toBeTypeOf('function')
+  })
+
+  it('keeps the tool subpath namespace Loader-safe', () => {
+    expect('default' in toolPlugin).toBe(false)
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(toolPlugin) as Record<string, unknown>
+    expect(unwrapped).toBe(toolPlugin)
+    expect(unwrapped.name).toBe('tool-dsh-supervisor')
+    expect(unwrapped.inject).toEqual(['tools', 'fleet'])
+    expect(unwrapped.Config).toBe(toolPlugin.Config)
+    expect(unwrapped.apply).toBe(toolPlugin.apply)
   })
 
   it('schema supplies defaults and validates positive integers', () => {

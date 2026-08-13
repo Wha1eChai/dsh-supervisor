@@ -137,6 +137,6 @@ interface Config {
 ## 不做
 
 - `fleet_*` 工具注册（L2）
-- `ctx.subagents.followup` 真正转发（L2）
+- `ctx.subagents.followup` / `interrupt` 精确 parent authority 转发（L2b）
 - preset / workflow / transport / Electron
 - 改官方仓库

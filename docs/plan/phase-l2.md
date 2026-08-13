@@ -1,5 +1,7 @@
 # L2 — Fleet 模型工具 Consumer
 
+**状态：已完成。** 本页列出的单元、ToolRuntime、真实 Loader、构建入口与 `pnpm pack` 门禁均已通过。
+
 ## 目标
 
 在同一个 npm 包中增加独立入口 `@wha1echai/dsh-supervisor/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions` 或 `ctx.subagents`。
@@ -165,6 +167,7 @@ Canonical output：
 - 可选字段保持省略，不用 `null` 替代。
 - `output.render` 只生成模型文本；canonical value 供 Code Mode 和程序化 Consumer 使用。
 - `presentCall` / `presentResult` 是参数和 durable result 的纯函数，不读取 Service、Session、时间或随机值。
+- `presentCall` 对 replay 参数做不抛异常的语义解析；空白 `session_id`、无效 `tail_messages` 或其他无效 card 参数返回 `undefined`，交给 ToolRuntime 使用 generic fallback。
 - 工具失败通过 ToolRuntime 标准 `isError` 路径返回；不要把 `FleetError` 改造成成功 union。
 
 ## 调用方身份与安全
@@ -174,7 +177,7 @@ Canonical output：
 - 工具不得读取 `ctx.agents`，不得直接调用 `Agent`，不得调用 `ctx.subagents`。
 - delegated target 继续由 Fleet Provider 返回 `fleet-delegated-write-deferred` / `fleet-observe-only`。
 - 自控制继续由 Fleet Provider 返回 `fleet-self-target`。
-- 写工具执行前调用 `exec.signal.throwIfAborted()`；同步 Service 接受后不因外层随后取消而假装回滚。
+- 写工具执行前调用 `exec.signal.throwIfAborted()`。`@deepseek-ai/dsh-tools@0.1.0-rc.6` 在工具 body 已成功返回后若 caller signal 于最终物化前取消，会把该次工具结果替换为 `ABORTED`；这只取消外层工具调用结果，不会回滚 Fleet Service 已同步接受的写操作。调用方需要通过后续 `list` / `inspect` 重新观察状态。
 
 ## 测试门禁
 
@@ -192,10 +195,11 @@ Canonical output：
 6. send/steer 精确传 target/text/caller，返回 canonical id，并验证 self/delegated Service 错误进入 `isError`。
 7. write 工具无 owning Agent 时失败且 Fleet Service 零调用。
 8. cancel 映射 caller 和可选 keepInbox；默认不伪造 `keepInbox: false`。
-9. list/inspect 是 parallel；send/steer/cancel 是 exclusive。
-10. `exec.signal` 预先 abort 时 ToolRuntime 不调用 Fleet Service。
-11. 所有 canonical output 可 lossless JSON 序列化；schema 拒绝实现返回的错误字段或类型。
-12. Consumer 源码不 import `@deepseek-ai/dsh-agent`（类型身份由 ToolRunContext 提供）或 `@deepseek-ai/dsh-subagent`。
+9. list/inspect 是 parallel；send/steer/cancel 使用各自有效参数验证为 exclusive。
+10. instrumented signal 证明三个写工具的 body 都显式调用 `exec.signal.throwIfAborted()`；原生预先 abort 仍由 ToolRuntime 在 body 前拒绝，并保持 Fleet Service 零调用。
+11. 真实 ToolRuntime 的 `tools/execute` wrapper 在 `next()` 返回后立即 abort 时，已同步接受的 Fleet 写入只发生一次，最终工具结果按 rc.6 契约为 `ABORTED`。
+12. 所有 canonical output 可 lossless JSON 序列化；schema 拒绝实现返回的错误字段或类型。
+13. Consumer 源码不 import `@deepseek-ai/dsh-agent`（类型身份由 ToolRunContext 提供）或 `@deepseek-ai/dsh-subagent`。
 
 ### 真实 Loader composition
 

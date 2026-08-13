@@ -2,11 +2,11 @@
 
 本目录只写**尚未完成或按阶段切开的工作**。产品边界见 [../product.md](../product.md)，挂载方式见 [../architecture.md](../architecture.md)。
 
-## 当前焦点
+## 当前状态
 
-**L2**：独立 `@wha1echai/dsh-supervisor/tool` Consumer，提供安全分级的 `fleet_*` 模型工具。
+**L2 已完成**：独立 `@wha1echai/dsh-supervisor/tool` Consumer 提供安全分级的 `fleet_*` 模型工具，并通过真实 ToolRuntime 与构建产物 Loader composition 测试。
 
-Delegated child 写入、主管 Agent、stdio、Electron 都还没开始。不要在本阶段实现它们。
+Delegated child 写入、主管 Agent、stdio、Electron 都还没开始。下一项能力变更应单独定义阶段范围。
 
 ## 文档
 

@@ -1,6 +1,6 @@
 # Fleet API 参考
 
-L1 在宿主进程提供 `ctx.fleet`。Consumer 必须注入 `fleet`，不得直接依赖 `ctx.agents`。
+宿主进程通过主入口提供 `ctx.fleet`，独立 `@wha1echai/dsh-supervisor/tool` 入口把该服务暴露为模型工具。Consumer 必须注入 `fleet`，不得直接依赖 `ctx.agents`。
 
 ## 安装
 
@@ -32,6 +32,41 @@ Bundle row 可在 profile patch 中整体重写配置：
 | `maxMessageTextChars` | 2000 | 正安全整数 | 每条摘要的文本字符上限 |
 
 无效配置在插件加载时失败。
+
+## 工具配置
+
+Bundle 插入独立的 `dsh-supervisor-tools` 行。默认 `controlMode: read-only`，可在 profile 的 `cordis.patch.yml` 中完整覆盖该行：
+
+```yaml
+- id: dsh-supervisor-tools
+  name: '@wha1echai/dsh-supervisor/tool'
+  config:
+    controlMode: message
+```
+
+| `controlMode` | 模型可见工具 |
+|---|---|
+| `read-only` | `fleet_list`、`fleet_inspect` |
+| `message` | 只读工具 + `fleet_send`、`fleet_steer` |
+| `full` | 全部工具，包括 `fleet_cancel` |
+
+`controlMode` 是部署级可见性选择，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()`。配置 HMR 会撤销旧工具集合再注册新集合。
+
+## 模型工具
+
+| 工具 | 参数 | Canonical output | 并发 |
+|---|---|---|---|
+| `fleet_list` | `roots_only?`、`running_only?` | `{ agents, count }` | parallel |
+| `fleet_inspect` | `session_id`、`tail_messages?` | `FleetInspectView` | parallel |
+| `fleet_send` | `session_id`、`text` | `{ sessionId, messageId }` | exclusive |
+| `fleet_steer` | `session_id`、`text` | `{ sessionId, messageId }` | exclusive |
+| `fleet_cancel` | `session_id`、`keep_inbox?` | `{ sessionId, accepted: true }` | exclusive |
+
+`session_id` 会 trim 后再调用 Service，并且不能为空。`fleet_inspect.tail_messages` 必须是正安全整数。`fleet_send` / `fleet_steer` 只用 trim 判断正文是否为空，传给 Service 的仍是原始 `text`。`fleet_cancel` 未提供 `keep_inbox` 时不会伪造 `keepInbox: false`。
+
+读工具允许 agentless 程序化调用。所有写工具要求 owning Agent，并且只从 `exec.agent.session.id` 派生 `callerSessionId`；模型参数中没有 caller id。预先 abort 的写调用在进入 Fleet Service 前失败。`@deepseek-ai/dsh-tools@0.1.0-rc.6` 若在 Fleet Service 已同步接受写入后、工具结果最终物化前收到 caller cancellation，会返回 `ABORTED`；该结果不表示 Fleet 写入回滚，调用方应通过后续读工具重新观察状态。其他工具错误同样通过 ToolRuntime 的 `isError` 结果返回，不包装成成功 union。
+
+五个工具都使用 generic card：list/inspect 为 `search`，send/steer/cancel 为 `execute`。Canonical value 供 Code Mode 和程序化 Consumer 使用，模型文本由工具的 `output.render` 生成。Card presenter 对 replay 参数安全解析；空白 `session_id`、无效 `tail_messages` 或其他无效 card 参数返回 `undefined`，由 ToolRuntime 使用 generic fallback。
 
 ## Service
 
@@ -94,7 +129,7 @@ interface FleetAgentView {
 
 `origin === 'subagent'` 或存在 `parentSession` 时，Agent 归类为 `delegated`。
 
-L1 不写 delegated Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。L2 才通过公开 subagent seam 接上继续写入和中断。
+当前版本不写 delegated Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。后续 L2b 需要给 Fleet Service 设计携带精确 parent authority 的 API，工具 Consumer 不会绕过 Service Definition 直接调用 subagent seam。
 
 ## 错误码
 
@@ -105,6 +140,6 @@ L1 不写 delegated Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-wr
 | `fleet-unavailable` | Provider 已卸载，旧 Service 引用不再可用 |
 | `fleet-not-found` | 当前进程没有该 live Session |
 | `fleet-self-target` | 调用方控制自己 |
-| `fleet-delegated-write-deferred` | child 可由 subagent seam 控制，但 L1 尚未接入写路径 |
+| `fleet-delegated-write-deferred` | child 可由 subagent seam 控制，但当前 Fleet API 尚未携带精确 parent authority |
 | `fleet-observe-only` | child 没有可用 subagent seam |
 | `fleet-empty-text` | send/steer 文本为空或仅含空白 |

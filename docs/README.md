@@ -19,7 +19,7 @@
 2. [architecture.md](architecture.md) — 挂载方式和禁止依赖。
 3. [plan/decisions.md](plan/decisions.md) — 已锁定决定。
 4. [plan/layers.md](plan/layers.md) — L0–L6 全景。
-5. 当前实现阶段：[plan/phase-l0.md](plan/phase-l0.md)、[plan/phase-l1.md](plan/phase-l1.md)。
+5. 当前实现阶段：[plan/phase-l0.md](plan/phase-l0.md)、[plan/phase-l1.md](plan/phase-l1.md)、[plan/phase-l2.md](plan/phase-l2.md)。
 
 ## 仓库内其他入口
 

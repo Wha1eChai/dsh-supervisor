@@ -30,7 +30,7 @@ ctx.fleet               本仓库：跨 Session 舰队视图 + 对 root 的有�
 
 `ctx.subagents` 与 `ctx.workflowEngine` 对 Fleet Definition 都是**可选依赖**。默认 Provider 用 `ctx.get('subagents')`：
 
-- 有缝：child 标为 `delegated` / `subagent`；L1 明确延期写入，L2 才转到 subagent API；
+- 有缝：child 标为 `delegated` / `subagent`；当前 Fleet API 延期写入，后续 L2b 才能携带精确 parent authority 转到 subagent API；
 - 无缝：child 标为 `observe-only`，写操作失败并说明缺少 subagent 缝。
 
 不要为了“方便”在无 `subagents` 时对 child 调 `Agent.followup()`。那会绕过 continuable 的 Activation、父权威和 cold resume。
@@ -42,7 +42,7 @@ dsh --profile <name>
   └─ official bundles
        └─ @wha1echai/dsh-supervisor
             ├─ FleetService          Definition + 默认 Provider
-            ├─ later: fleet_* tools  Consumer（L2）
+            ├─ fleet_* tools         Consumer（L2）
             ├─ later: other providers
             ├─ later: supervisor preset
             └─ later: transport consumer
@@ -122,7 +122,7 @@ control: 'direct' | 'subagent' | 'observe-only'
 | cold Session | 不出现在 `list()` |
 | 调用方自己的 Session | 拒绝控制 |
 
-L1 **先把 child 标对，写入返回 `fleet-delegated-write-deferred`**，直到 L2 接上 `subagents.followup` / `interrupt`。
+当前实现把 child 标对，写入返回 `fleet-delegated-write-deferred`。接入 `subagents.followup` / `interrupt` 需要精确 parent authority，属于后续 L2b Fleet API，而不是 L2 工具 Consumer 的职责。
 
 ## 组合
 

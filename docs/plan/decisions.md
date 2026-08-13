@@ -23,7 +23,7 @@
 11. 调试宿主：现有 **`web` profile**。独立 `supervisor` profile 是 L4。
 12. `list()` 只包含 **当前进程 live Agent**。cold Session 不出现。
 13. live root：`list` / `inspect` / `send` / `steer` / `cancel`。
-14. live child：L1 必须标成 `kind: 'delegated'`。写入返回明确错误（`delegated-write-deferred` 或缺少缝时的 `observe-only`），L2 再接 `subagents.followup` / `interrupt`。
+14. live child：标成 `kind: 'delegated'`。当前实现保持 deferred / observe-only：有 subagent 缝时写入返回 `delegated-write-deferred`，缺少缝时返回 `observe-only`；通过 `subagents.followup` / `interrupt` 写入属于 L2b。
 15. 传入 `callerSessionId` 时禁止控制自己。
 16. 取消原因：`{ kind: 'hook', reason: 'fleet-cancel' }`。
 17. 发送/转向来源：`{ kind: 'plugin', plugin: 'dsh-supervisor' }`。
