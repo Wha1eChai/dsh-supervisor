@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-supervisor
+      name: '@wha1echai/dsh-supervisor'
