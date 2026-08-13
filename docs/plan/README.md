@@ -4,9 +4,9 @@
 
 ## 当前焦点
 
-**L0 + L1**：可安装 Bundle + `ctx.fleet` 能力缝（Definition + 默认进程内 Provider）+ 最小 Consumer 测试。
+**L2**：独立 `@wha1echai/dsh-supervisor/tool` Consumer，提供安全分级的 `fleet_*` 模型工具。
 
-主管 Agent、stdio、Electron 都还没开始。不要在本阶段实现它们。
+Delegated child 写入、主管 Agent、stdio、Electron 都还没开始。不要在本阶段实现它们。
 
 ## 文档
 
@@ -16,8 +16,9 @@
 | [layers.md](layers.md) | L0–L6 全景和依赖 |
 | [phase-l0.md](phase-l0.md) | 仓库骨架、pnpm、bundle 安装 |
 | [phase-l1.md](phase-l1.md) | FleetService、默认 Provider、测试套件 |
+| [phase-l2.md](phase-l2.md) | `fleet_*` 工具 Consumer、模型输出和真实 ToolRuntime 验收 |
 
-后继阶段（L2+）有代码需求时再单开一页，不要提前写实现规格。
+后继阶段（L3+）有代码需求时再单开一页，不要提前写实现规格。
 
 ## 推进规则
 

@@ -26,7 +26,9 @@ L6  daemon / 多 Runtime Provider / 权限深化
 
 ## L2 — 模型工具
 
-`fleet_list` / `fleet_inspect` / `fleet_send` / `fleet_steer` / `fleet_cancel` 只 `inject: ['fleet']`（以及 `tools`）。`fleet_inspect` 默认限流。配置开关控制写入类工具。在现有 Web Session 里手工验证“A 取消 B”。
+`@wha1echai/dsh-supervisor/tool` 只注入 `fleet` 和 `tools`，按 `read-only` / `message` / `full` 安全模式注册 `fleet_list` / `fleet_inspect` / `fleet_send` / `fleet_steer` / `fleet_cancel`。模型不能提供 caller id；写工具从 owning Agent 派生，并继续由 Fleet 拒绝 self/delegated 写入。
+
+详见 [phase-l2.md](phase-l2.md)。Delegated followup / interrupt 需要精确 parent authority，单列后续 L2b，不从 Consumer 绕过 Service Definition。
 
 ## L3 — Preset
 
