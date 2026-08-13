@@ -4,14 +4,16 @@
 
 ## 目标
 
-在同一个 npm 包中增加独立入口 `@wha1echai/dsh-supervisor/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions` 或 `ctx.subagents`。
+在同一个 npm 包中增加独立入口 `@wha1echai/dsh-supervisor/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions`、`ctx.subagents` 或 `ctx.workflowEngine`。
 
-L2 不改变 `FleetService` 的 delegated 写入契约。`ctx.subagents.followup()` 需要精确 live parent `Agent` 作为授权，现有 Fleet API 只有 JSON-safe caller id；该能力需要单独设计，不能由工具绕过 Service Definition。
+L2 不改变 `FleetService` 的 delegated 写入约定。`ctx.subagents.followup()` 需要精确 live parent `Agent` 作为授权，现有 Fleet API 只有 JSON-safe caller id；该能力需要单独设计，不能由工具绕过 Service Definition。
+
+模型可见能力由当前 profile/Consumer 组合和 tool registry 决定。Consumer 挂载或重配后，已经 live 的 Session 在下一次模型请求中自然看到最新 `fleet_*`；不注入聊天消息，也不增加只用于能力广告的常驻 system prompt prose。该 Consumer 不注册或宣传 subagent/workflow 工具。
 
 ## 插件入口
 
 ```text
-@wha1echai/dsh-supervisor       Fleet Definition + 默认 Provider
+@wha1echai/dsh-supervisor       Fleet Definition + 当前同进程 Provider
 @wha1echai/dsh-supervisor/tool  模型工具 Consumer
 ```
 
@@ -72,6 +74,7 @@ Canonical output：
 ```
 
 - 调用 `ctx.fleet.list({ rootsOnly, runningOnly })`。
+- 每个 Agent view 保留 `sessionId`，作为当前 DSH runtime 内后续 Fleet 操作的稳定路由标识。
 - 只读并声明 `isConcurrencySafe() === true`。
 - 模型文本：无结果时 `No live Fleet sessions.`；有结果时提供数量和完整 JSON-safe agent 数组。
 - Generic card：`List Fleet sessions`，`kind: 'search'`。
@@ -220,7 +223,7 @@ Canonical output：
 
 ## 文档和发布
 
-- 更新英文/中文 README：状态从 Service Preview 变为 Tool Preview，标记 L2 完成，并给出 profile config 示例。
+- 英文/中文 README 保持语义对齐：状态为 Tool Preview，明确同一 DSH runtime 范围、动态工具发现、可选 Consumer 组合和 `sessionId` 路由。
 - 更新 [../reference/fleet.md](../reference/fleet.md) 的工具章节和安全模式。
 - `package.json` 导出 `./tool`，peer/dev dependency 增加精确 `@deepseek-ai/dsh-tools@0.1.0-rc.6`；测试需要的 `dsh-system-prompt` 只放 dev dependency，除非运行时入口直接 import。
 - tarball 必须包含 `dist/tool*` 及其声明。
@@ -229,5 +232,5 @@ Canonical output：
 
 - delegated child followup / interrupt 的 Service API 重设计（后续 L2b）
 - supervisor preset / workflow 组合（L3）
-- transport、Electron、daemon
+- cross-process、cross-terminal/device、local-to-server、remote Web、gateway、transport、Electron、daemon 或 multi-runtime control
 - npm publish 或 GitHub Release

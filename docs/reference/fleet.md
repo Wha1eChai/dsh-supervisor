@@ -2,6 +2,8 @@
 
 宿主进程通过主入口提供 `ctx.fleet`，独立 `@wha1echai/dsh-supervisor/tool` 入口把该服务暴露为模型工具。Consumer 必须注入 `fleet`，不得直接依赖 `ctx.agents`。
 
+当前 Provider 只访问同一运行中 DSH runtime（即同一个 `dsh` 进程）的 live Agent。它不提供跨进程、跨终端或跨设备、本地到服务器、remote Web、gateway、daemon 或多 runtime 路由。
+
 ## 安装
 
 ```powershell
@@ -10,7 +12,7 @@ dsh --profile web --dump-config
 dsh --profile web
 ```
 
-开发和测试必须设置隔离的 `DSH_HOME`，不要修改现有用户 profile。
+开发和测试必须设置隔离的 `DSH_HOME`，不要修改现有用户 profile。这里的 `web` profile 只是现有 DSH 宿主，不表示本插件提供 remote Web 或多 Session UI。
 
 ## 配置
 
@@ -33,9 +35,9 @@ Bundle row 可在 profile patch 中整体重写配置：
 
 无效配置在插件加载时失败。
 
-## 工具配置
+## 工具配置与发现
 
-Bundle 插入独立的 `dsh-supervisor-tools` 行。默认 `controlMode: read-only`，可在 profile 的 `cordis.patch.yml` 中完整覆盖该行：
+Bundle 插入独立的 `dsh-supervisor-tools` 行。只有该 Consumer 实际挂载时，`fleet_*` 才会注册。默认 `controlMode: read-only`，可在 profile 的 `cordis.patch.yml` 中完整覆盖该行：
 
 ```yaml
 - id: dsh-supervisor-tools
@@ -52,15 +54,28 @@ Bundle 插入独立的 `dsh-supervisor-tools` 行。默认 `controlMode: read-on
 
 `controlMode` 是部署级可见性选择，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()`。配置 HMR 会撤销旧工具集合再注册新集合。
 
+已运行的 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前注册的工具；不生成聊天消息，也不需要只用于工具广告的常驻 system prompt prose。该入口只注册 `fleet_*`，不注册或宣传 subagent/workflow 工具；这些能力必须由对应公开 seam 和官方 Consumer 独立挂载。
+
 ## 模型工具
 
 | 工具 | 参数 | Canonical output | 并发 |
 |---|---|---|---|
-| `fleet_list` | `roots_only?`、`running_only?` | `{ agents, count }` | parallel |
+| `fleet_list` | `roots_only?`、`running_only?` | `{ agents: FleetAgentView[], count: number }` | parallel |
 | `fleet_inspect` | `session_id`、`tail_messages?` | `FleetInspectView` | parallel |
 | `fleet_send` | `session_id`、`text` | `{ sessionId, messageId }` | exclusive |
 | `fleet_steer` | `session_id`、`text` | `{ sessionId, messageId }` | exclusive |
 | `fleet_cancel` | `session_id`、`keep_inbox?` | `{ sessionId, accepted: true }` | exclusive |
+
+`fleet_list` 返回：
+
+```ts
+{
+  agents: FleetAgentView[]
+  count: number
+}
+```
+
+每个 `FleetAgentView` 都包含 `sessionId`。它是当前 DSH runtime 内 inspect/send/steer/cancel 的 canonical routing identifier。未来任何 Session-list UI 必须原样展示它并提供复制操作；当前 package 不提供该 UI。它也不是已定义的跨 runtime 或全局远程地址。
 
 `session_id` 会 trim 后再调用 Service，并且不能为空。`fleet_inspect.tail_messages` 必须是正安全整数。`fleet_send` / `fleet_steer` 只用 trim 判断正文是否为空，传给 Service 的仍是原始 `text`。`fleet_cancel` 未提供 `keep_inbox` 时不会伪造 `keepInbox: false`。
 
@@ -81,7 +96,7 @@ ctx.fleet.subscribe(listener)
 
 ### `list`
 
-只返回当前进程中的 live Agent。`rootsOnly` 排除 delegated Agent；`runningOnly` 只保留 `status === 'running'`。
+只返回当前 DSH runtime，也就是当前 `dsh` 进程中的 live Agent。`rootsOnly` 按当前 `kind` 投影排除 delegated Agent；`runningOnly` 只保留 `status === 'running'`。
 
 ### `inspect`
 
@@ -89,7 +104,7 @@ ctx.fleet.subscribe(listener)
 
 ### `send` / `steer`
 
-只写 live root Agent。消息来源固定为：
+当前只写被 Provider 分类为 live root 的 Agent。消息来源固定为：
 
 ```ts
 { kind: 'plugin', plugin: 'dsh-supervisor' }
@@ -99,7 +114,7 @@ ctx.fleet.subscribe(listener)
 
 ### `cancel`
 
-只取消 live root Agent，原因固定为：
+当前只取消被 Provider 分类为 live root 的 Agent，原因固定为：
 
 ```ts
 { kind: 'hook', reason: 'fleet-cancel' }
@@ -127,19 +142,21 @@ interface FleetAgentView {
 }
 ```
 
-`origin === 'subagent'` 或存在 `parentSession` 时，Agent 归类为 `delegated`。
+当前实现中，`origin === 'subagent'` 或存在 `parentSession` 时，Agent 被归类为 `delegated`。这是 lineage 元数据启发式，不是最终 authoritative runtime-root classification。目标权威来源是 `ctx.agents.roots()`，该 correctness fix 仍待完成。
 
-当前版本不写 delegated Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。后续 L2b 需要给 Fleet Service 设计携带精确 parent authority 的 API，工具 Consumer 不会绕过 Service Definition 直接调用 subagent seam。
+因此，当前 `kind`、`control`、`rootsOnly` 以及依赖该分类的 root 写授权或 delegated 写错误可能受误分类影响，不能描述为对所有 runtime root/child 都已正确。
+
+当前版本不写被推断为 delegated 的 Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。后续 L2b 需要给 Fleet Service 设计携带精确 parent authority 的 API，工具 Consumer 不会绕过 Service Definition 直接调用 subagent seam。
 
 ## 错误码
 
-`FleetError.code` 是 Consumer 和后续传输使用的稳定字段。
+`FleetError.code` 是 Consumer 和后续可能的 transport 使用的稳定字段。
 
 | code | 条件 |
 |---|---|
 | `fleet-unavailable` | Provider 已卸载，旧 Service 引用不再可用 |
-| `fleet-not-found` | 当前进程没有该 live Session |
+| `fleet-not-found` | 当前 DSH runtime 的 live Fleet 中没有该 `sessionId` |
 | `fleet-self-target` | 调用方控制自己 |
-| `fleet-delegated-write-deferred` | child 可由 subagent seam 控制，但当前 Fleet API 尚未携带精确 parent authority |
-| `fleet-observe-only` | child 没有可用 subagent seam |
+| `fleet-delegated-write-deferred` | 被分类为 delegated 的 Session 可由 subagent seam 控制，但当前 Fleet API 尚未携带精确 parent authority |
+| `fleet-observe-only` | 被分类为 delegated 的 Session 没有可用 subagent seam |
 | `fleet-empty-text` | send/steer 文本为空或仅含空白 |

@@ -1,8 +1,10 @@
 # L1 — Fleet 能力缝
 
+**状态：已完成，runtime-root 分类仍有待修正确性项。**
+
 ## 目标
 
-进程内提供 `ctx.fleet`。默认 Provider 投影当前进程的 live Agent，并对 **root** 执行 send / steer / cancel。Consumer（工具、传输）尚未作为产品面交付，但 Service 契约必须让它们以后只依赖 `ctx.fleet`。
+在同一运行中 DSH runtime（一个 `dsh` 进程）内提供 `ctx.fleet`。Provider 投影该 runtime 的 live Agent，并对被分类为 **root** 的目标执行 send / steer / cancel。Service API 只暴露 JSON-safe 数据，使后续 Consumer 只依赖 `ctx.fleet`。
 
 ## 模块划分
 
@@ -12,9 +14,9 @@
 |---|---|
 | `src/types.ts` | JSON-safe 视图、错误、事件 |
 | `src/service.ts` | `FleetService` Definition：校验、权限、委托到当前 Provider |
-| `src/providers/in-process.ts` | 默认 Provider：读 `ctx.agents`，写 root 的 `Agent` |
-| `src/classify.ts` | root vs delegated（`session.header.origin` / `parentSession`） |
-| `src/index.ts` | 挂载 Service + 默认 Provider |
+| `src/providers/in-process.ts` | 当前同进程 Provider：读 `ctx.agents`，写 root 的 `Agent` |
+| `src/classify.ts` | 当前 root vs delegated lineage 启发式（`session.header.origin` / `parentSession`） |
+| `src/index.ts` | 挂载 Service + 当前同进程 Provider |
 | `tests/*.spec.ts` | mock Agent 注册表 |
 
 L1 可以暂不拆 npm 子包。拆包是缝稳定之后的事。
@@ -65,6 +67,8 @@ updatedAt?
 
 `inspect` 在 view 之上加尾部文本摘要（从 `session.deriveMessages()` 取 user/assistant 文本，按配置截断）。禁止返回 `Agent` / `Session` / 全量 event 数组。
 
+`sessionId` 是当前 DSH runtime 内稳定的 Fleet 路由标识。`list()` 的每个 view 都必须保留它，后续 inspect/send/steer/cancel 使用它寻址；它不是全局或跨 runtime remote address。
+
 ## 插件配置
 
 遵守官方“deployment-varying values 不得硬编码”规则。入口同时导出 Schemastery `Config`：
@@ -92,10 +96,10 @@ interface Config {
 
 用带 `code` 字段的 Error 子类，便于工具以后映射，而不解析英文句子。
 
-## 默认 Provider
+## 当前 Provider
 
-- `list`：`ctx.agents.list()`，映射视图。
-- 分类：`header.origin === 'subagent'` 或存在 `header.parentSession` → `delegated`。
+- `list`：`ctx.agents.list()`，映射同一 DSH runtime 的 live Agent 视图。
+- 当前分类启发式：`header.origin === 'subagent'` 或存在 `header.parentSession` → `delegated`。
 - delegated + `ctx.get('subagents')` 存在 → `control: 'subagent'`，L1 写入仍抛 `fleet-delegated-write-deferred`。
 - delegated + 无 subagents → `control: 'observe-only'`，写入抛 `fleet-observe-only`。
 - root → `control: 'direct'`，`send`=`followup`，`steer`=`steer`，`cancel`=`cancel({ kind: 'hook', reason: 'fleet-cancel' }, { keepInbox })`。
@@ -106,6 +110,10 @@ interface Config {
 
 `queueCount`：`inbox.nextTurn.length + inbox.nextStep.length`。
 
+### 已知 runtime-root 分类缺口
+
+目标权威来源是 `ctx.agents.roots()`。当前 `origin` / `parentSession` 仅是 lineage 元数据启发式，可能误分类 runtime root；修复仍待完成。因此 `kind`、`control`、`rootsOnly`、root 写授权和 delegated 写错误不能被描述为对所有 Agent 都已正确。
+
 ## 测试套件（L1 门禁）
 
 全部 keyless，mock `Agent` / `AgentRegistry` / 可选的 `subagents`。
@@ -114,7 +122,7 @@ interface Config {
 
 1. `list` 返回两个 live root，字段完整。
 2. `runningOnly` / `rootsOnly` 过滤。
-3. child 出现为 `kind: 'delegated'`。
+3. 带当前 lineage 标记的 child 按现有启发式投影为 `kind: 'delegated'`；该测试不证明 authoritative runtime-root 分类已经正确。
 4. 有假 `subagents` 时 child 的 `control === 'subagent'`，`send` 抛 `fleet-delegated-write-deferred`。
 5. 无 `subagents` 时 child 的 `control === 'observe-only'`，`send` 抛 `fleet-observe-only`。
 6. `send` / `steer` 调用了对应 Agent 方法，且 message source 为 plugin `dsh-supervisor`。

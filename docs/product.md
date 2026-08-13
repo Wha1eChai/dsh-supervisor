@@ -1,8 +1,8 @@
 # 产品
 
-`dsh-supervisor` 是 DeepSeek Harness 上的**控制面能力缝**：让同一个 `dsh` 进程里的 live Session 可被列出、检查、发送、转向和取消。
+`dsh-supervisor` 当前首先解决同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供 **Fleet capability seam** 和模型可调用的 `fleet_*` 工具，让一个 live Session 能以稳定 `sessionId` 观察或控制另一个 live Session。
 
-它不是第二个 harness，也不是绕过官方生态另写的调度内核。
+当前产品面是进程内 Service/API 和模型工具，不是第二个 harness、远程控制服务或多 Session UI。
 
 ## 核心哲学（必须遵守）
 
@@ -18,60 +18,80 @@ Consumer             注入该服务的工具 / preset / UI / 传输
 
 | 缝 | Definition | 可替换的是什么 |
 |---|---|---|
-| `ctx.subagents` | 委托注册表 | 子 Agent 跑在本进程、fork、ACP、别的 runtime |
-| `ctx.workflowEngine` | 编排引擎 | worker-thread / 未来进程或沙箱 |
+| `ctx.subagents` | 委托注册表 | 子 Agent 的 Provider |
+| `ctx.workflowEngine` | 编排引擎 | worker-thread / 其他受支持实现 |
 | `ctx.llm` / `ctx.shell` / `ctx.tools` | 各能力 | adapter、后端、策略 |
 
-本仓库的实现必须是同一形状：
+本仓库当前交付的结构是：
 
 ```text
-ctx.fleet            Definition（词汇与权限）
-default provider     当前进程的 live Agent / Session
-later providers      stdio 对端、多 Runtime、只读观察
-fleet_* tools        Consumer（模型）
-supervisor preset    Consumer（组合）
-transport / Electron Consumer（进程外）
+ctx.fleet                 Definition（词汇与权限）
+in-process provider       同一 dsh 进程的 live Agent / Session
+fleet_* tools             当前 Consumer（模型）
+supervisor preset         未来 Consumer（组合）
+Web / Electron / transport 未来可选 Consumer 或产品面
 ```
 
 因此：
 
-- 工具和桌面只依赖 `ctx.fleet`，不直接操作 `Agent`。
+- 工具和未来产品面只依赖 `ctx.fleet`，不直接操作 `Agent`。
 - 子 Session 的继续写入和中断走 **`ctx.subagents`**，不在 Fleet 里再发明一套 child API。
 - 主管侧的扇出和脚本编排走 **`ctx.workflowEngine`**，不在 Fleet 里做第三个调度器。
 - Provider 可卸载；卸载后停止新操作，不撤销已交出的调用约定。
 
 ## 要解决的问题
 
-官方 Web UI 面向单会话对话。多 Session 并行时，缺少统一的观察和调度层。
+多个 live Session 在同一个 DSH runtime 中并行时，需要能发现彼此，并使用明确、稳定的标识完成模型驱动的跨 Session 通信。Fleet 当前补的是这一进程内 Service 和工具层。
 
-本产品补这一层，并保持用户仍运行官方 `dsh`。调度层本身也必须能被替换，否则会和官方生态拧着走。
+官方对话 UI 不是当前实现面。本包目前不提供多 Session Web UI、Session 管理列表、远程 Web 服务或桌面应用；任何 UI 都是未来 Consumer。
+
+## 能力如何出现
+
+模型可见能力由 profile 中实际挂载的 seam、Consumer 和当前 tool registry 决定：
+
+- 只有挂载 `@wha1echai/dsh-supervisor/tool` 才注册 `fleet_*`。
+- Consumer 在 Session 已运行后挂载或重配时，该 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前工具集合。
+- 不插入 user、assistant 或其他聊天消息来通知模型。
+- 不增加只为广告工具存在而常驻的 system prompt prose。
+- Fleet Consumer 只暴露 `fleet_*`，不会因为检测到 `ctx.subagents` 或 `ctx.workflowEngine` 就暴露对应工具。
+- Subagent 和 workflow 行为只有在各自公开 seam 和官方 Consumer 都已挂载时才可见。未来 supervisor preset 只能组合这些 Consumer，不得复制工具实现、schema 或宣传未挂载能力。
+
+## 身份与寻址
+
+`sessionId` 是当前 DSH runtime 内第一等、稳定的 Fleet 路由标识：
+
+- `fleet_list` 的 canonical output `{ agents, count }` 中，每个 Agent 视图都包含 `sessionId`。
+- `fleet_inspect`、`fleet_send`、`fleet_steer` 和 `fleet_cancel` 使用它寻址。
+- 未来任何面向人的 Session-list UI 必须展示 `sessionId` 并提供复制操作；当前没有该 UI。
+- `sessionId` 不是已定义的跨 runtime 或全局远程地址。未来多 runtime 支持必须另外设计 runtime namespace 和寻址。
 
 ## 不是什么
 
-- 不是独立 agent runtime。
+- 不是独立 Agent runtime。
 - 不是官方 `deepseek-ai/deepseek-harness` 的 fork 产品面。
 - 不发布同名 `@deepseek-ai/*` 包去覆盖官方实现。
 - 不把 `followup` / `steer` / `cancel` 写进模型工具里当“实现”。
 - 不绕过 `subagents` 去 `followup` 子 Agent。
-- 第一阶段不做 Electron、不做跨进程聚合、不销毁任意 Agent。
+- 当前不支持跨进程、跨终端或跨设备、从本机连接服务器、remote Web、gateway、daemon 或多 runtime 聚合控制。
+- 当前不提供多 Session Web UI 或 Electron 应用，也不销毁任意 Agent。
 
 ## 用户感知
 
 ```text
 安装官方 dsh
 安装本插件到一个 profile
-在现有 dsh 会话里用 fleet_* 调度其他 Session
-后续可选：supervisor preset、桌面壳
+在现有 live Session 中用 fleet_* 与同一 dsh 进程的其他 live Session 通信
+未来可选：supervisor preset、Web 产品面、Electron wrapper
 ```
 
-桌面 EXE 若出现，只是调起并连接 `dsh` 的壳，并且仍通过 Fleet Consumer 说话。
+安装示例使用现有 `web` profile 作为宿主，不表示插件已经提供 remote Web 或 supervisor UI。Web 可作为未来一等产品面；Electron 若出现，只是可选 wrapper，并且二者都次于当前同 runtime 通信目标。
 
 ## 分发
 
 - 代码在本仓库，包名 `@wha1echai/dsh-supervisor`。
 - 安装走 `dsh plugin --profile <name> add <path-or-spec>`。
-- 官方不接受外部 PR；能力回馈官方的方式是保持公开缝，而不是往他们 monorepo 塞代码。
+- 这是独立社区插件，不承诺 DeepSeek 官方采用。
 
 ## 收益假设
 
-DeepSeek 主推自有 harness 和可插拔生态。控制面必须长在这条生态上：同一套 Provider 替换、同一套 subagent/workflow 委托，才能被后续官方 UI、ACP、preset 复用。自己再做 runtime 或平行控制协议，会同时失去分发和维护杠杆。
+保持公开 capability seam，可让未来兼容 Consumer 在明确组合和支持范围内接入同一 Fleet API。当前不承诺官方 UI、ACP、gateway、远程 transport 或多 runtime 集成；这些能力若推进，必须作为后续阶段单独设计和验证。

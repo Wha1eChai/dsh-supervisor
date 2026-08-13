@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-A community control-plane plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It exposes a replaceable `ctx.fleet` service for observing and controlling live sessions in the same `dsh` process, plus model-callable `fleet_*` tools over that service.
+A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
 
-> **Status: tool preview (L0 + L1 + L2).** The Fleet service and five tool Consumer definitions are implemented and keylessly tested through the built package entries.
+> **Status: tool preview (L0 + L1 + L2).** The Fleet service and five tool Consumer definitions are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
 
@@ -14,16 +14,19 @@ DeepSeek Harness treats capabilities as hot-swappable plugin seams. `dsh-supervi
 
 ```text
 FleetService                  Service Definition (`ctx.fleet`)
-InProcessFleetProvider        Default Provider (`ctx.agents`)
-fleet_* tools                 Consumer (`ctx.fleet` + `ctx.tools`)
-supervisor preset / transport Planned Consumers (L3+)
+InProcessFleetProvider        Same-process Provider (`ctx.agents`)
+fleet_* tools                 Current Consumer (`ctx.fleet` + `ctx.tools`)
+supervisor preset             Planned Consumer (L3)
+profile / surface / transport Future Consumers (L4+)
 ```
 
-The tool Consumer never imports the Agent or Subagent APIs and does not access `ctx.agents`, `ctx.sessions`, or `ctx.subagents`. The plugin does not replace the existing subagent or workflow runtimes:
+The Fleet tool Consumer never imports the Agent or Subagent APIs and does not access `ctx.agents`, `ctx.sessions`, or `ctx.subagents`. It registers only `fleet_*` tools. The plugin does not replace or duplicate the existing subagent or workflow capabilities:
 
-- delegated-session continuation and interruption belong to `ctx.subagents`;
-- orchestration belongs to `ctx.workflowEngine`;
-- Fleet adds process-wide live-session observation and limited root-session control.
+- delegated-Session continuation and interruption belong to the public `ctx.subagents` seam and its official Consumer;
+- orchestration belongs to the public `ctx.workflowEngine` seam and its official Consumer;
+- Fleet adds a same-process view of live Sessions and limited root-Session control.
+
+Subagent and workflow tools are optional profile composition. They are model-visible only when their corresponding public seam and Consumer are mounted; Fleet does not advertise unavailable capabilities.
 
 See [docs/architecture.md](docs/architecture.md) for the complete constraints.
 
@@ -31,11 +34,11 @@ See [docs/architecture.md](docs/architecture.md) for the complete constraints.
 
 `ctx.fleet` provides:
 
-- `list()` — list live agents in the current process;
+- `list()` — list live Agents in the current DSH process;
 - `inspect()` — return a bounded, JSON-safe transcript summary;
-- `send()` — enqueue a plugin-sourced follow-up for a live root agent;
-- `steer()` — steer a live root agent;
-- `cancel()` — cancel a live root agent with a stable Fleet cause;
+- `send()` — enqueue a plugin-sourced follow-up for a live root Agent;
+- `steer()` — steer a live root Agent;
+- `cancel()` — cancel a live root Agent with a stable Fleet cause;
 - `subscribe()` — observe projected create/status/dispose events.
 
 The separate `@wha1echai/dsh-supervisor/tool` entry registers:
@@ -44,9 +47,25 @@ The separate `@wha1echai/dsh-supervisor/tool` entry registers:
 - `fleet_send` and `fleet_steer` in `message` and `full` modes;
 - `fleet_cancel` only in `full` mode.
 
-The default `controlMode` is `read-only`. Write tools derive caller identity only from their owning Agent session, reject agentless execution, and pass self/delegated authorization to `ctx.fleet`. Delegated agents remain read-only in L2; the Consumer never bypasses Fleet to call subagent APIs directly.
+Mounting this Consumer makes its currently configured tools available to already-live Sessions through normal ToolRuntime composition on their next model request. It does not inject a synthetic chat message or rely on permanent system-prompt prose to announce Fleet.
+
+The canonical `fleet_list` output is `{ agents, count }`, and every returned Agent view contains `sessionId`. This is the stable routing identifier within the current DSH runtime for `fleet_inspect`, `fleet_send`, `fleet_steer`, and `fleet_cancel`. Any future Session-list UI must display `sessionId` and provide a copy action; this package does not provide that UI today.
+
+The default `controlMode` is `read-only`. Write tools derive caller identity only from their owning Agent Session, reject agentless execution, and pass self/delegated authorization to `ctx.fleet`. Delegated Agents remain read-only in L2; the Consumer never bypasses Fleet to call subagent APIs directly.
 
 API, configuration, tools, and error codes are documented in [docs/reference/fleet.md](docs/reference/fleet.md).
+
+## Current scope
+
+The in-process Provider sees live Sessions only in the same running DSH runtime, meaning the same `dsh` process. The current release does not provide:
+
+- cross-process or multi-runtime discovery and control;
+- cross-terminal or cross-device routing;
+- local-to-server control;
+- remote Web, gateway, or daemon support;
+- a multi-Session Web or desktop UI.
+
+The `web` profile used below is an existing DSH host for installation and development. It does not mean that this plugin supplies remote Web support or a supervisor UI. Web may become a future first-class surface, with Electron as an optional wrapper, but both remain secondary to same-runtime communication.
 
 ## Requirements
 
@@ -119,9 +138,11 @@ export const inject = ['fleet']
 
 export function apply(ctx: Context) {
   const live = ctx.fleet.list()
-  // Build another command, UI adapter, or transport from the JSON-safe view.
+  // Build a future command or UI adapter from the same-runtime JSON-safe view.
 }
 ```
+
+Such Consumers are separate plugins and are not included with the current package. Any future transport or remote Consumer also requires separate identity, transport, and permission design; the current `sessionId` must not be treated as a global remote address.
 
 ## Development
 
@@ -140,11 +161,12 @@ The tests use the real `ToolRuntime`, validate canonical values and model-facing
 - [x] **L0** — installable Bundle, build, package metadata, real Loader smoke.
 - [x] **L1** — `FleetService`, in-process Provider, lifecycle isolation, keyless tests.
 - [x] **L2** — `fleet_list`, `fleet_inspect`, `fleet_send`, `fleet_steer`, and `fleet_cancel` tool Consumer.
-- [ ] **L2b** — delegated-session write API with exact parent authority through the public subagent seam.
-- [ ] **L3** — supervisor agent preset using Fleet and the existing workflow seam.
-- [ ] **L4** — dedicated profile and local transport.
-- [ ] **L5** — optional Electron shell that launches and connects to `dsh`.
-- [ ] **L6** — daemon and multi-runtime Fleet Providers.
+- [ ] **Correctness priority** — classify authoritative runtime roots through `ctx.agents.roots()` instead of relying only on lineage metadata.
+- [ ] **L2b** — delegated-Session write API with exact parent authority through the public subagent seam.
+- [ ] **L3** — supervisor Agent preset that conditionally composes the existing Fleet, subagent, and workflow Consumers.
+- [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.
+- [ ] **L5 option** — optional Electron wrapper around a future supported surface.
+- [ ] **L6+** — future daemon and multi-runtime Fleet Providers.
 - [ ] Publish the first registry package after user-facing verification.
 - [ ] Add compatibility CI for each supported DSH release candidate.
 
@@ -161,7 +183,7 @@ Start at [docs/README.md](docs/README.md):
 
 ## Contributing
 
-Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, and orchestration stays in `ctx.workflowEngine`.
+Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, orchestration stays in `ctx.workflowEngine`, and model-visible capability follows the seams and Consumers actually mounted in the profile.
 
 ## License
 

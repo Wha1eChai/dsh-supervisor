@@ -5,9 +5,12 @@
 ## Product boundary
 
 - This repository extends the published `dsh` runtime; it is not a second harness and not a fork of `deepseek-ai/deepseek-harness`.
+- The current product is cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime, meaning one `dsh` process.
+- Cross-process, cross-terminal or cross-device, local-to-server, remote Web, gateway, daemon, and multi-runtime control are future work and must not be implied as current support.
+- The current surface is the Fleet Service and model-callable `fleet_*` tools. A future first-class Web surface or optional Electron wrapper remains secondary to same-runtime communication.
 - Do not edit the sibling `deepseek-harness` checkout. It is read-only reference material and may be on a different release candidate from the supported runtime.
 - Publish only under the `@wha1echai/*` scope. Never claim DeepSeek affiliation or publish `@deepseek-ai/*` names.
-- Keep work within the current phase in [docs/plan/layers.md](docs/plan/layers.md). Do not pull Electron, transports, daemon behavior, or future presets into an earlier phase.
+- Keep work within the current phase in [docs/plan/layers.md](docs/plan/layers.md). Do not pull future presets, surfaces, transports, or daemon behavior into an earlier phase.
 
 ## Capability design
 
@@ -18,13 +21,16 @@ Consumer -> FleetService <- Provider
 ```
 
 - `ctx.fleet` and its request/result/error types are the Fleet Service Definition.
-- `InProcessFleetProvider` is the default Provider over `ctx.agents`.
+- `InProcessFleetProvider` is the current same-process Provider over `ctx.agents`.
 - Tools, commands, presets, transports, and UIs are Consumers and depend only on `ctx.fleet`.
 - Consumers must never call `ctx.agents`, `Agent.followup`, `Agent.steer`, or `Agent.cancel` directly.
 - Delegated-session continuation, interruption, and child enumeration belong to the public `ctx.subagents` seam. Never import a concrete subagent Provider.
 - Orchestration belongs to `ctx.workflowEngine`. Fleet must not become another workflow runtime.
+- Service availability and model-visible tool availability are separate. Subagent and workflow behavior is exposed only when its public seam and official Consumer are both mounted.
+- The Fleet tool Consumer registers and describes only `fleet_*` tools. It must not copy subagent or workflow schemas, invoke their implementations, or advertise unavailable optional capabilities.
 - Do not retain or invoke `AgentHandle.dispose`.
 - Views and transport-facing results remain lossless JSON values; do not expose `Agent`, `Session`, raw event arrays, functions, or Cordis objects.
+- `sessionId` is the stable Fleet routing identifier within the current DSH runtime. Preserve it in list results, selectors, errors, and future surfaces; any future Session-list UI must display it and provide a copy action without claiming that UI exists today.
 
 ## Plugin and lifecycle rules
 
@@ -44,6 +50,8 @@ Follow the official DSH plugin documentation under the sibling checkout's `docs/
 Follow the official tool authoring reference before adding or changing a tool.
 
 - Register tools through `ctx.tools.register(defineTool(...))` with `inject` containing `tools` and the consumed Service.
+- Model-visible capability follows mounted profile/Consumer composition and the current tool registry, not injected prompt text. After a Consumer is mounted or reconfigured, already-live Sessions discover its current tools through normal ToolRuntime composition on their next model request.
+- Do not inject user, assistant, or other chat messages to announce tools. Do not add permanent system-prompt prose solely to advertise that a capability exists.
 - `execute` returns one canonical JSON value declared by `output.schema`; it does not return content blocks or prose-only identifiers.
 - `output.render` owns model-facing text. Tool schemas, descriptions, rendered text, error behavior, and card intent are user-visible behavior.
 - Choose UI render intent up front. Fleet tools use a generic card unless a later design establishes a more specific neutral card.
@@ -62,7 +70,7 @@ Follow the official tool authoring reference before adding or changing a tool.
 ## Source and prose
 
 - Code, identifiers, diagnostics, commit messages, and model-facing tool text are English.
-- Keep `README.md` and `README.zh.md` aligned for public installation, status, and roadmap changes.
+- Keep `README.md` and `README.zh.md` aligned for public installation, status, scope, and roadmap changes.
 - User-facing Chinese documentation lives under `docs/`; update contracts, configuration, and limitations with the code.
 - Public exports and non-obvious lifecycle behavior require concise JSDoc. Do not narrate control flow or preserve review history in comments.
 - Files end with exactly one trailing newline.

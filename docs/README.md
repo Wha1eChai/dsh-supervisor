@@ -7,7 +7,7 @@
 | 组 | 入口 | 回答的问题 |
 |---|---|---|
 | 产品 | [product.md](product.md) | 这是什么、不是什么、给谁用、怎么分发 |
-| 架构 | [architecture.md](architecture.md) | 如何挂在 DSH 上、公开 seam、进程边界 |
+| 架构 | [architecture.md](architecture.md) | 如何挂在 DSH 上、公开 seam、同 runtime 边界和工具发现 |
 | 计划 | [plan/README.md](plan/README.md) | 分层、已做决定、每阶段范围和验收 |
 | 参考 | [reference/fleet.md](reference/fleet.md) | Fleet API、错误码、配置字段 |
 
@@ -18,7 +18,7 @@
 1. [product.md](product.md) — 产品边界。
 2. [architecture.md](architecture.md) — 挂载方式和禁止依赖。
 3. [plan/decisions.md](plan/decisions.md) — 已锁定决定。
-4. [plan/layers.md](plan/layers.md) — L0–L6 全景。
+4. [plan/layers.md](plan/layers.md) — 已交付 L0–L2、待修 correctness priority 和未来 L2b–L6 全景。
 5. 当前实现阶段：[plan/phase-l0.md](plan/phase-l0.md)、[plan/phase-l1.md](plan/phase-l1.md)、[plan/phase-l2.md](plan/phase-l2.md)。
 
 ## 仓库内其他入口
