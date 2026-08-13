@@ -3,6 +3,27 @@
   "version": "0.1.0",
   "description": "DeepSeek Harness control-plane plugin providing an in-process FleetService for live sessions",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wha1eChai/dsh-supervisor.git"
+  },
+  "homepage": "https://github.com/Wha1eChai/dsh-supervisor#readme",
+  "bugs": {
+    "url": "https://github.com/Wha1eChai/dsh-supervisor/issues"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "agent",
+    "multi-agent",
+    "supervisor"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
@@ -22,7 +43,8 @@
     "dist",
     "cordis.patch.yml",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ],
   "dsh": {
     "bundle": {

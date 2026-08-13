@@ -25,7 +25,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| [../README.md](../README.md) | 仓库一句话说明和当前阶段 |
+| [../README.md](../README.md) / [../README.zh.md](../README.zh.md) | 公开仓库说明、安装、状态和 TODO |
 | [../AGENTS.md](../AGENTS.md) | 在本仓库改代码时的实现约束 |
 
 ## 写作约定
