@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
 
-> **Status: tool preview (L0 + L1 + L2).** The Fleet service and five tool Consumer definitions are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
+> **Status: tool preview (L0 + L1 + L2 + L2.1).** The Fleet service, authoritative runtime-ownership classification, and five tool Consumer definitions are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
 
@@ -51,7 +51,7 @@ Mounting this Consumer makes its currently configured tools available to already
 
 The canonical `fleet_list` output is `{ agents, count }`, and every returned Agent view contains `sessionId`. This is the stable routing identifier within the current DSH runtime for `fleet_inspect`, `fleet_send`, `fleet_steer`, and `fleet_cancel`. Any future Session-list UI must display `sessionId` and provide a copy action; this package does not provide that UI today.
 
-The default `controlMode` is `read-only`. Write tools derive caller identity only from their owning Agent Session, reject agentless execution, and pass self/delegated authorization to `ctx.fleet`. Delegated Agents remain read-only in L2; the Consumer never bypasses Fleet to call subagent APIs directly.
+The default `controlMode` is `read-only`. Write tools derive caller identity only from their owning Agent Session, reject agentless execution, and pass self/delegated authorization to `ctx.fleet`. Fleet classifies runtime roots by exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata do not affect `kind` or write authority. Delegated Agents remain read-only in L2.1; the Consumer never bypasses Fleet to call subagent APIs directly.
 
 API, configuration, tools, and error codes are documented in [docs/reference/fleet.md](docs/reference/fleet.md).
 
@@ -161,7 +161,7 @@ The tests use the real `ToolRuntime`, validate canonical values and model-facing
 - [x] **L0** — installable Bundle, build, package metadata, real Loader smoke.
 - [x] **L1** — `FleetService`, in-process Provider, lifecycle isolation, keyless tests.
 - [x] **L2** — `fleet_list`, `fleet_inspect`, `fleet_send`, `fleet_steer`, and `fleet_cancel` tool Consumer.
-- [ ] **Correctness priority** — classify authoritative runtime roots through `ctx.agents.roots()` instead of relying only on lineage metadata.
+- [x] **L2.1** — authoritative runtime root/delegated classification through exact Agent membership in `ctx.agents.roots()`, independent of durable lineage metadata.
 - [ ] **L2b** — delegated-Session write API with exact parent authority through the public subagent seam.
 - [ ] **L3** — supervisor Agent preset that conditionally composes the existing Fleet, subagent, and workflow Consumers.
 - [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.

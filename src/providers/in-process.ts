@@ -7,6 +7,7 @@ import { classifyAgent, resolveControl } from '../classify.js'
 import { FleetService } from '../service.js'
 import {
   FleetError,
+  type FleetAgentKind,
   type FleetAgentView,
   type FleetCallerOptions,
   type FleetCancelOptions,
@@ -30,6 +31,7 @@ export class InProcessFleetProvider extends FleetService {
   static inject = ['agents']
 
   private readonly listeners = new Set<(event: FleetEvent) => void | Promise<void>>()
+  private readonly runtimeKinds = new WeakMap<Agent, FleetAgentKind>()
   private active = true
 
   /**
@@ -40,9 +42,14 @@ export class InProcessFleetProvider extends FleetService {
   constructor(ctx: Context, private readonly config: InProcessFleetConfig) {
     super(ctx)
     // Agent lifecycle events carry scoped subjects, so the host-level Fleet bridge listens globally.
-    ctx.on('agent/created', ({ agent }) => { this.publish('created', agent) }, { global: true })
-    ctx.on('agent/status', ({ agent }) => { this.publish('status', agent) }, { global: true })
-    ctx.on('agent/disposed', ({ agent }) => { this.publish('disposed', agent) }, { global: true })
+    ctx.on('agent/created', ({ agent }) => { this.publishLive('created', agent) }, { global: true })
+    ctx.on('agent/status', ({ agent }) => { this.publishLive('status', agent) }, { global: true })
+    ctx.on('agent/disposed', ({ agent }) => { this.publishDisposed(agent) }, { global: true })
+
+    const agents = ctx.agents.list()
+    const roots = new Set(ctx.agents.roots())
+    for (const agent of agents) this.classifyLive(agent, roots)
+
     ctx.effect(() => () => {
       this.active = false
       this.listeners.clear()
@@ -52,8 +59,10 @@ export class InProcessFleetProvider extends FleetService {
   /** List live agents from the required Agent registry. */
   list(filter: FleetListFilter = {}): FleetAgentView[] {
     this.requireActive()
-    return this.ctx.agents.list()
-      .map(agent => this.project(agent))
+    const agents = this.ctx.agents.list()
+    const roots = new Set(this.ctx.agents.roots())
+    return agents
+      .map(agent => this.project(agent, this.classifyLive(agent, roots)))
       .filter(view => !filter.rootsOnly || view.kind === 'root')
       .filter(view => !filter.runningOnly || view.status === 'running')
   }
@@ -67,7 +76,7 @@ export class InProcessFleetProvider extends FleetService {
       .filter(isSummarizableMessage)
       .slice(-tailCount)
       .map(message => this.summarize(message))
-    return { ...this.project(agent), tailMessages }
+    return { ...this.project(agent, this.classifyLive(agent)), tailMessages }
   }
 
   /** Queue a follow-up on a root agent. */
@@ -125,9 +134,18 @@ export class InProcessFleetProvider extends FleetService {
     throw new FleetError('fleet-unavailable', 'fleet-unavailable: Fleet provider is unloaded')
   }
 
-  /** Project one Agent into the public JSON-safe view. */
-  private project(agent: Agent): FleetAgentView {
-    const kind = classifyAgent(agent)
+  /** Classify and cache one exact live Agent from a root identity snapshot. */
+  private classifyLive(
+    agent: Agent,
+    roots: ReadonlySet<Agent> = new Set(this.ctx.agents.roots()),
+  ): FleetAgentKind {
+    const kind = classifyAgent(agent, roots)
+    this.runtimeKinds.set(agent, kind)
+    return kind
+  }
+
+  /** Project one Agent into the public JSON-safe view using an explicit runtime classification. */
+  private project(agent: Agent, kind: FleetAgentKind): FleetAgentView {
     const header = agent.session.header
     const lastEvent = agent.session.events.at(-1)
     return {
@@ -158,7 +176,7 @@ export class InProcessFleetProvider extends FleetService {
       throw new FleetError('fleet-self-target', `fleet-self-target: session "${sessionId}" cannot control itself`)
     }
     const agent = this.requireAgent(sessionId)
-    if (classifyAgent(agent) === 'root') return agent
+    if (this.classifyLive(agent) === 'root') return agent
     if (this.ctx.get('subagents') === undefined) {
       throw new FleetError('fleet-observe-only', `fleet-observe-only: delegated session "${sessionId}" has no subagent seam`)
     }
@@ -174,18 +192,37 @@ export class InProcessFleetProvider extends FleetService {
     return { messageId: message.id, role: message.role, text }
   }
 
-  /** Deliver a projected lifecycle event without letting subscribers disrupt Agent lifecycle. */
-  private publish(type: FleetEventType, agent: Agent): void {
+  /** Classify one live event subject and deliver its projected lifecycle event. */
+  private publishLive(type: Exclude<FleetEventType, 'disposed'>, agent: Agent): void {
     if (!this.active) return
-    const event: FleetEvent = { type, agent: this.project(agent) }
+    const kind = this.classifyLive(agent)
+    this.deliver({ type, agent: this.project(agent, kind) })
+  }
+
+  /** Project disposal from the exact Agent cache after registry removal. */
+  private publishDisposed(agent: Agent): void {
+    if (!this.active) return
+    const kind = this.runtimeKinds.get(agent)
+    if (kind === undefined) {
+      // Provider seeding and agent/created must cache every exact Agent before its paired disposal.
+      throw new Error(`dsh-supervisor: missing runtime ownership classification for disposed agent "${agent.id}"`)
+    }
+    const event: FleetEvent = { type: 'disposed', agent: this.project(agent, kind) }
+    this.runtimeKinds.delete(agent)
+    this.deliver(event)
+  }
+
+  /** Deliver one projected lifecycle event without letting subscribers disrupt Agent lifecycle. */
+  private deliver(event: FleetEvent): void {
+    const { type, agent } = event
     for (const listener of [...this.listeners]) {
       try {
         const returned = listener(event)
         void Promise.resolve(returned).catch((error) => {
-          this.ctx.logger.warn(`fleet "${agent.id}": ${type} listener rejected: ${String(error)}`)
+          this.ctx.logger.warn(`fleet "${agent.sessionId}": ${type} listener rejected: ${String(error)}`)
         })
       } catch (error) {
-        this.ctx.logger.warn(`fleet "${agent.id}": ${type} listener threw: ${String(error)}`)
+        this.ctx.logger.warn(`fleet "${agent.sessionId}": ${type} listener threw: ${String(error)}`)
       }
     }
   }

@@ -24,6 +24,7 @@ Consumer -> FleetService <- Provider
 - `InProcessFleetProvider` is the current same-process Provider over `ctx.agents`.
 - Tools, commands, presets, transports, and UIs are Consumers and depend only on `ctx.fleet`.
 - Consumers must never call `ctx.agents`, `Agent.followup`, `Agent.steer`, or `Agent.cancel` directly.
+- Runtime root/delegated classification comes only from exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata never grant write authority.
 - Delegated-session continuation, interruption, and child enumeration belong to the public `ctx.subagents` seam. Never import a concrete subagent Provider.
 - Orchestration belongs to `ctx.workflowEngine`. Fleet must not become another workflow runtime.
 - Service availability and model-visible tool availability are separate. Subagent and workflow behavior is exposed only when its public seam and official Consumer are both mounted.

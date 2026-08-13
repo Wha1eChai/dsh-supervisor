@@ -28,10 +28,10 @@ ctx.fleet               本仓库：同一 runtime 的跨 Session Fleet 视图 +
 | 主管扇出多个检查/派发 | `ctx.workflowEngine` 及其 Consumer（未来 L3 组合） |
 | 跨进程或多 runtime | 当前未实现；需要新的 Provider、transport、身份命名和权限设计 |
 
-`ctx.subagents` 与 `ctx.workflowEngine` 对 Fleet Definition 都是**可选依赖**。当前 Provider 机会式读取 `ctx.subagents` 只影响 Fleet 对 delegated Session 的控制分类和错误：
+`ctx.subagents` 与 `ctx.workflowEngine` 对 Fleet Definition 都是**可选依赖**。当前 Provider 机会式读取 `ctx.subagents` 只影响 Fleet 对 runtime delegated Agent 的控制分类和错误：
 
 - 有缝：当前 Fleet API 仍延期 delegated 写入，后续 L2b 才能携带精确 parent authority 转到 subagent API；
-- 无缝：推断为 child 的 Session 为 observe-only，写操作失败并说明缺少 subagent seam。
+- 无缝：runtime delegated Agent 为 observe-only，写操作失败并说明缺少 subagent seam。
 
 Service 存在不代表对应模型工具已经挂载。不要为了“方便”在无 `subagents` 时对 child 调 `Agent.followup()`；那会绕过 continuable Activation、父权威和 cold resume。
 
@@ -69,7 +69,7 @@ dsh --profile <name>
 | 能力 | 角色 |
 |---|---|
 | Cordis `Service` + declaration merge | Fleet Definition |
-| `ctx.agents` | 当前 Provider 的 root 控制面 |
+| `ctx.agents` | live Agent、runtime ownership 分类与 root 控制面 |
 | `Agent.session` / inbox / header | 视图投影 |
 | `createUserMessage` | `source.kind: 'plugin'` |
 | `ctx.subagents`（可选） | delegated 控制分类；未来 child 写路径 |
@@ -106,16 +106,17 @@ Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable`
 
 `opts` 带可选 `callerSessionId`。传入时禁止控制自己。
 
-视图只含 JSON-safe 字段。`kind` 区分控制面，而不是把实现细节泄漏出去：
+视图只含 JSON-safe 字段。`kind` 来自 AgentRegistry runtime ownership，而不是 durable Session lineage：
 
 ```text
 kind: 'root' | 'delegated'
 control: 'direct' | 'subagent' | 'observe-only'
 ```
 
-- `root` + `direct`：当前 Provider 走 `Agent`
-- `delegated` + `subagent`：写路径必须有 `ctx.subagents`
-- `observe-only`：只读（one-shot、无 subagent seam、或策略关闭写入）
+- exact Agent 属于 `ctx.agents.roots()` → `root` + `direct`，当前 Provider 直接走 `Agent`
+- exact Agent 不属于 `ctx.agents.roots()` → `delegated`；有 `ctx.subagents` 时为 `subagent`，否则为 `observe-only`
+
+`session.header.origin` 和 `session.header.parentSession` 不参与 `kind`、`control`、`rootsOnly` 或写授权。`parentSession` 仍独立投影为 `parentSessionId`，所以 runtime root 可以带 `parentSessionId`，runtime delegated Agent 也可以不带该字段。
 
 ## `sessionId` 寻址
 
@@ -137,17 +138,13 @@ Fleet 所有路由操作以 `sessionId` 为主键。`fleet_list` 的 canonical o
 
 | 对象 | 当前行为 |
 |---|---|
-| live root | list / inspect / send / steer / cancel |
-| 被当前元数据启发式推断为 delegated，且 `subagents` 已挂载 | list / inspect；写入返回 `fleet-delegated-write-deferred` |
-| 被当前元数据启发式推断为 delegated，且无 `subagents` | 只读；写入返回 `fleet-observe-only` |
+| exact live Agent 属于 `ctx.agents.roots()` | list / inspect / send / steer / cancel；`kind: root`、`control: direct` |
+| exact live Agent 不属于 roots，且 `subagents` 已挂载 | list / inspect；`kind: delegated`、`control: subagent`；写入返回 `fleet-delegated-write-deferred` |
+| exact live Agent 不属于 roots，且无 `subagents` | list / inspect；`kind: delegated`、`control: observe-only`；写入返回 `fleet-observe-only` |
 | cold Session | 不出现在 `list()` |
 | 调用方自己的 Session | 拒绝控制 |
 
-### 已知 runtime-root 分类缺口
-
-目标不变量是以 `ctx.agents.roots()` 判断 authoritative runtime root membership。当前实现仍通过 `origin === 'subagent'` 或 `parentSession` 等 lineage 元数据推断 `root` / `delegated`；这不是最终权威分类，修复仍待完成。
-
-在修复前，`kind`、`control`、`rootsOnly` 以及依赖该分类的 root 写授权或 delegated 写错误都可能受误分类影响。文档和产品声明不得把 child/root 分类描述为已完全正确。
+Provider 为 exact Agent 对象缓存已观察到的 runtime classification。挂载时先注册生命周期监听器，再用一次 `list()` 与一次 `roots()` seed 已经 live 的 Agent。`created`、`status`、`list`、`inspect` 和写授权都会刷新同一对象缓存；`disposed` 在 registry 删除后只读取该 exact Agent 的缓存，不按 `sessionId` 查 replacement，也不重新查询 roots。因此 disposal event 保留旧 Agent 的 runtime kind，同 id replacement 的分类不会被旧 lifecycle 覆盖或删除。
 
 ## 组合
 

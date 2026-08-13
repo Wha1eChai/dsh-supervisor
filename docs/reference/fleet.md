@@ -96,7 +96,7 @@ ctx.fleet.subscribe(listener)
 
 ### `list`
 
-只返回当前 DSH runtime，也就是当前 `dsh` 进程中的 live Agent。`rootsOnly` 按当前 `kind` 投影排除 delegated Agent；`runningOnly` 只保留 `status === 'running'`。
+只返回当前 DSH runtime，也就是当前 `dsh` 进程中的 live Agent。`rootsOnly` 按 AgentRegistry runtime ownership 排除 exact Agent 不属于 `ctx.agents.roots()` 的 delegated Agent；`runningOnly` 只保留 `status === 'running'`。
 
 ### `inspect`
 
@@ -142,11 +142,13 @@ interface FleetAgentView {
 }
 ```
 
-当前实现中，`origin === 'subagent'` 或存在 `parentSession` 时，Agent 被归类为 `delegated`。这是 lineage 元数据启发式，不是最终 authoritative runtime-root classification。目标权威来源是 `ctx.agents.roots()`，该 correctness fix 仍待完成。
+`kind` 的唯一权威来源是 exact live Agent 是否属于 `ctx.agents.roots()`：属于时为 `root`，否则为 `delegated`。该分类同时驱动 `control`、`rootsOnly`、send/steer/cancel 写授权，以及 created/status/disposed event。
 
-因此，当前 `kind`、`control`、`rootsOnly` 以及依赖该分类的 root 写授权或 delegated 写错误可能受误分类影响，不能描述为对所有 runtime root/child 都已正确。
+`session.header.origin` 和 `session.header.parentSession` 不参与 runtime classification 或授权。`parentSession` 仍原样投影为 `parentSessionId`，它只表示 durable Session lineage：runtime root 可以带 `parentSessionId`，runtime delegated Agent 也可以没有该字段。
 
-当前版本不写被推断为 delegated 的 Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。后续 L2b 需要给 Fleet Service 设计携带精确 parent authority 的 API，工具 Consumer 不会绕过 Service Definition 直接调用 subagent seam。
+Provider 按 exact Agent 对象缓存已观察到的 kind，并在挂载时 seed 已经 live 的 Agent。由于 `agent/disposed` 在 registry 删除后发出，disposal event 只使用该对象的缓存分类，不按 session id 查询当前 live Agent，也不重新读取 roots。同 id replacement 因此不会受 stale disposal 影响。
+
+当前版本不写 runtime delegated Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。后续 L2b 需要给 Fleet Service 设计携带精确 parent authority 的 API，工具 Consumer 不会绕过 Service Definition 直接调用 subagent seam。
 
 ## 错误码
 

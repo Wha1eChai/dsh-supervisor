@@ -25,16 +25,26 @@ afterEach(async () => {
   while (disposals.length > 0) await disposals.pop()?.()
 })
 
-async function createHarness(config: Config = TEST_CONFIG, subagents = false) {
+async function createRegistryHarness(subagents = false) {
   const ctx = new Context()
   const registryFiber = await ctx.plugin(AgentRegistry)
   if (subagents) {
     ctx.provide('subagents', { marker: true })
   }
-  const fleetFiber = await ctx.plugin(InProcessFleetProvider, config)
   disposals.push(() => registryFiber.dispose())
+  return { ctx, registryFiber }
+}
+
+async function mountFleet(ctx: Context, config: Config = TEST_CONFIG) {
+  const fleetFiber = await ctx.plugin(InProcessFleetProvider, config)
   disposals.push(() => fleetFiber.dispose())
-  return { ctx, registryFiber, fleetFiber }
+  return fleetFiber
+}
+
+async function createHarness(config: Config = TEST_CONFIG, subagents = false) {
+  const harness = await createRegistryHarness(subagents)
+  const fleetFiber = await mountFleet(harness.ctx, config)
+  return { ...harness, fleetFiber }
 }
 
 function createStubAgent(
@@ -92,6 +102,13 @@ function register(ctx: Context, ...agents: StubAgent[]): Array<() => void> {
   return agents.map(agent => ctx.agents.register(agent))
 }
 
+function enterChild(ctx: Context, child: StubAgent, owner: StubAgent): () => void {
+  const detach = ctx.agents.enter(child, owner)
+  ctx.agents.announce(child)
+  expect(ctx.agents.isOwnedBy(child.id, owner)).toBe(true)
+  return detach
+}
+
 function emitStatus(ctx: Context, agent: StubAgent): void {
   ctx.emit(agentCarrier(agent), 'agent/status', { agent, status: agent.status })
 }
@@ -144,38 +161,69 @@ describe('Fleet L1 behavior', () => {
     expect(() => JSON.stringify(ctx.fleet.list())).not.toThrow()
   })
 
-  it('2. applies runningOnly and rootsOnly filters', async () => {
+  it('2. applies runningOnly and rootsOnly from runtime ownership', async () => {
     const { ctx } = await createHarness()
     const idleRoot = createStubAgent(ctx, 'idle-root')
     const runningRoot = createStubAgent(ctx, 'running-root', { status: 'running' })
-    const runningChild = createStubAgent(ctx, 'running-child', { status: 'running', parentSessionId: 'running-root' })
-    register(ctx, idleRoot, runningRoot, runningChild)
+    const runningChild = createStubAgent(ctx, 'running-child', { status: 'running' })
+    register(ctx, idleRoot, runningRoot)
+    enterChild(ctx, runningChild, runningRoot)
 
     expect(ctx.fleet.list({ runningOnly: true }).map(view => view.sessionId)).toEqual(['running-root', 'running-child'])
     expect(ctx.fleet.list({ rootsOnly: true }).map(view => view.sessionId)).toEqual(['idle-root', 'running-root'])
     expect(ctx.fleet.list({ runningOnly: true, rootsOnly: true }).map(view => view.sessionId)).toEqual(['running-root'])
   })
 
-  it('3. classifies origin or parent lineage as delegated', async () => {
+  it.each<[string, { origin: 'subagent'; parentSessionId?: string }]>([
+    ['origin and parent lineage', { origin: 'subagent', parentSessionId: 'durable-parent' }],
+    ['origin lineage', { origin: 'subagent' }],
+  ])('3. keeps a normally registered runtime root with %s root, direct, and writable', async (_label, metadata) => {
     const { ctx } = await createHarness()
-    register(
-      ctx,
-      createStubAgent(ctx, 'origin-child', { origin: 'subagent' }),
-      createStubAgent(ctx, 'parent-child', { parentSessionId: 'root' }),
-    )
+    const root = createStubAgent(ctx, 'lineage-root', metadata)
+    register(ctx, root)
 
-    expect(ctx.fleet.list().map(view => [view.sessionId, view.kind, view.parentSessionId])).toEqual([
-      ['origin-child', 'delegated', undefined],
-      ['parent-child', 'delegated', 'root'],
-    ])
+    expect(ctx.fleet.list()).toEqual([expect.objectContaining({
+      sessionId: 'lineage-root',
+      kind: 'root',
+      control: 'direct',
+      ...(metadata.parentSessionId === undefined ? {} : { parentSessionId: metadata.parentSessionId }),
+    })])
+    expect(ctx.fleet.list({ rootsOnly: true }).map(view => view.sessionId)).toEqual(['lineage-root'])
+    expect(ctx.fleet.inspect('lineage-root')).toEqual(expect.objectContaining({
+      sessionId: 'lineage-root',
+      kind: 'root',
+      control: 'direct',
+      ...(metadata.parentSessionId === undefined ? {} : { parentSessionId: metadata.parentSessionId }),
+    }))
+
+    ctx.fleet.send('lineage-root', 'follow up')
+    ctx.fleet.steer('lineage-root', 'steer')
+    ctx.fleet.cancel('lineage-root')
+    expect(root.followup).toHaveBeenCalledOnce()
+    expect(root.steer).toHaveBeenCalledOnce()
+    expect(root.cancel).toHaveBeenCalledOnce()
   })
 
-  it('4. exposes subagent control but defers delegated writes without Agent calls', async () => {
+  it('4. classifies a metadata-free runtime child as delegated and defers every write with subagents', async () => {
     const { ctx } = await createHarness(TEST_CONFIG, true)
-    const child = createStubAgent(ctx, 'child', { origin: 'subagent' })
-    register(ctx, child)
+    const owner = createStubAgent(ctx, 'owner')
+    const child = createStubAgent(ctx, 'child')
+    register(ctx, owner)
+    enterChild(ctx, child, owner)
 
-    expect(ctx.fleet.list()[0]?.control).toBe('subagent')
+    expect(ctx.fleet.list().map(view => [view.sessionId, view.kind, view.control])).toEqual([
+      ['owner', 'root', 'direct'],
+      ['child', 'delegated', 'subagent'],
+    ])
+    const childView = ctx.fleet.list().find(view => view.sessionId === 'child')
+    expect(childView).toEqual(expect.objectContaining({
+      sessionId: 'child', kind: 'delegated', control: 'subagent',
+    }))
+    expect(childView).not.toHaveProperty('parentSessionId')
+    expect(ctx.fleet.list({ rootsOnly: true }).map(view => view.sessionId)).toEqual(['owner'])
+    expect(ctx.fleet.inspect('child')).toEqual(expect.objectContaining({
+      sessionId: 'child', kind: 'delegated', control: 'subagent',
+    }))
     expectFleetCode(() => ctx.fleet.send('child', 'hello'), 'fleet-delegated-write-deferred')
     expectFleetCode(() => ctx.fleet.steer('child', 'hello'), 'fleet-delegated-write-deferred')
     expectFleetCode(() => ctx.fleet.cancel('child'), 'fleet-delegated-write-deferred')
@@ -184,12 +232,19 @@ describe('Fleet L1 behavior', () => {
     expect(child.cancel).not.toHaveBeenCalled()
   })
 
-  it('5. makes delegated agents observe-only without subagents and never calls Agent writes', async () => {
+  it('5. makes a metadata-free runtime child observe-only without subagents', async () => {
     const { ctx } = await createHarness()
-    const child = createStubAgent(ctx, 'child', { parentSessionId: 'root' })
-    register(ctx, child)
+    const owner = createStubAgent(ctx, 'owner')
+    const child = createStubAgent(ctx, 'child')
+    register(ctx, owner)
+    enterChild(ctx, child, owner)
 
-    expect(ctx.fleet.list()[0]?.control).toBe('observe-only')
+    expect(ctx.fleet.list().find(view => view.sessionId === 'child')).toEqual(expect.objectContaining({
+      kind: 'delegated', control: 'observe-only',
+    }))
+    expect(ctx.fleet.inspect('child')).toEqual(expect.objectContaining({
+      kind: 'delegated', control: 'observe-only',
+    }))
     expectFleetCode(() => ctx.fleet.send('child', 'hello'), 'fleet-observe-only')
     expectFleetCode(() => ctx.fleet.steer('child', 'hello'), 'fleet-observe-only')
     expectFleetCode(() => ctx.fleet.cancel('child'), 'fleet-observe-only')
@@ -292,16 +347,16 @@ describe('Fleet L1 behavior', () => {
     expect(() => JSON.stringify(clampedView)).not.toThrow()
   })
 
-  it('12. projects created/status/disposed and stops after idempotent disposal or unload', async () => {
+  it('12. keeps root created/status/disposed classification after registry removal', async () => {
     const { ctx, fleetFiber } = await createHarness()
-    const root = createStubAgent(ctx, 'root')
+    const root = createStubAgent(ctx, 'root', { origin: 'subagent', parentSessionId: 'durable-parent' })
     const first: string[] = []
     const second: string[] = []
     const disposeFirst = ctx.fleet.subscribe((event) => {
-      first.push(`${event.type}:${event.agent.status}`)
+      first.push(`${event.type}:${event.agent.kind}:${event.agent.status}`)
     })
     ctx.fleet.subscribe((event) => {
-      second.push(`${event.type}:${event.agent.status}`)
+      second.push(`${event.type}:${event.agent.kind}:${event.agent.status}`)
     })
     const [detach] = register(ctx, root)
 
@@ -312,13 +367,143 @@ describe('Fleet L1 behavior', () => {
     root.status = 'idle'
     emitStatus(ctx, root)
     detach?.()
-    expect(first).toEqual(['created:idle', 'status:running'])
-    expect(second).toEqual(['created:idle', 'status:running', 'status:idle', 'disposed:idle'])
+    expect(first).toEqual(['created:root:idle', 'status:root:running'])
+    expect(second).toEqual([
+      'created:root:idle',
+      'status:root:running',
+      'status:root:idle',
+      'disposed:root:idle',
+    ])
 
     await fleetFiber.dispose()
     root.status = 'running'
     emitStatus(ctx, root)
-    expect(second).toEqual(['created:idle', 'status:running', 'status:idle', 'disposed:idle'])
+    expect(second).toHaveLength(4)
+  })
+
+  it('13. keeps metadata-free child created/status/disposed classification after registry removal', async () => {
+    const { ctx } = await createHarness(TEST_CONFIG, true)
+    const owner = createStubAgent(ctx, 'owner')
+    const child = createStubAgent(ctx, 'child')
+    register(ctx, owner)
+    const seen: string[] = []
+    ctx.fleet.subscribe((event) => {
+      if (event.agent.sessionId === 'child') {
+        seen.push(`${event.type}:${event.agent.kind}:${event.agent.control}`)
+      }
+    })
+
+    const detachChild = enterChild(ctx, child, owner)
+    child.status = 'running'
+    emitStatus(ctx, child)
+    detachChild()
+
+    expect(seen).toEqual([
+      'created:delegated:subagent',
+      'status:delegated:subagent',
+      'disposed:delegated:subagent',
+    ])
+  })
+
+  it('14. preserves the created classification when an earlier listener requests immediate detach', async () => {
+    const { ctx } = await createRegistryHarness()
+    const root = createStubAgent(ctx, 'root', { origin: 'subagent', parentSessionId: 'durable-parent' })
+    let detach: (() => void) | undefined
+    ctx.on('agent/created', ({ agent }) => {
+      if (agent === root) detach?.()
+    }, { global: true })
+    await mountFleet(ctx)
+    const seen: string[] = []
+    ctx.fleet.subscribe((event) => {
+      if (event.agent.sessionId === 'root') seen.push(`${event.type}:${event.agent.kind}`)
+    })
+
+    detach = ctx.agents.enter(root, undefined)
+    ctx.agents.announce(root)
+
+    expect(ctx.agents.get(root.id)).toBeUndefined()
+    expect(seen).toEqual(['created:root', 'disposed:root'])
+  })
+
+  it('15. seeds already-live root and child classifications without synthetic created events', async () => {
+    const { ctx } = await createRegistryHarness(true)
+    const root = createStubAgent(ctx, 'root', { origin: 'subagent', parentSessionId: 'durable-parent' })
+    const child = createStubAgent(ctx, 'child')
+    const [detachRoot] = register(ctx, root)
+    const detachChild = enterChild(ctx, child, root)
+
+    await mountFleet(ctx)
+    const seen: string[] = []
+    ctx.fleet.subscribe((event) => {
+      seen.push(`${event.type}:${event.agent.sessionId}:${event.agent.kind}`)
+    })
+
+    expect(ctx.fleet.list().map(view => [view.sessionId, view.kind, view.control, view.parentSessionId])).toEqual([
+      ['root', 'root', 'direct', 'durable-parent'],
+      ['child', 'delegated', 'subagent', undefined],
+    ])
+    expect(ctx.fleet.inspect('root')).toEqual(expect.objectContaining({ kind: 'root', control: 'direct' }))
+    expect(ctx.fleet.inspect('child')).toEqual(expect.objectContaining({ kind: 'delegated', control: 'subagent' }))
+    expect(seen).toEqual([])
+
+    detachChild()
+    detachRoot?.()
+    expect(seen).toEqual([
+      'disposed:child:delegated',
+      'disposed:root:root',
+    ])
+  })
+
+  it('16. isolates a same-id replacement from stale disposal by exact Agent identity', async () => {
+    const { ctx } = await createRegistryHarness()
+    const owner = createStubAgent(ctx, 'owner')
+    const oldChild = createStubAgent(ctx, 'same')
+    const replacement = createStubAgent(ctx, 'same', { origin: 'subagent', parentSessionId: 'durable-parent' })
+    register(ctx, owner)
+    let detachReplacement: (() => void) | undefined
+    ctx.on('agent/disposed', ({ agent }) => {
+      if (agent !== oldChild) return
+      detachReplacement = ctx.agents.enter(replacement, undefined)
+      ctx.agents.announce(replacement)
+    }, { global: true })
+    await mountFleet(ctx)
+    const roots = vi.spyOn(ctx.agents, 'roots')
+    const get = vi.spyOn(ctx.agents, 'get')
+    const isOwnedBy = vi.spyOn(ctx.agents, 'isOwnedBy')
+
+    const seen: string[] = []
+    ctx.fleet.subscribe((event) => {
+      if (event.agent.sessionId === 'same') {
+        seen.push(`${event.type}:${event.agent.kind}:${event.agent.parentSessionId ?? 'none'}`)
+      }
+    })
+    const detachOld = enterChild(ctx, oldChild, owner)
+    roots.mockClear()
+    get.mockClear()
+    isOwnedBy.mockClear()
+    detachOld()
+
+    expect(seen).toEqual([
+      'created:delegated:none',
+      'created:root:durable-parent',
+      'disposed:delegated:none',
+    ])
+    expect(roots).toHaveBeenCalledOnce()
+    expect(get).not.toHaveBeenCalled()
+    expect(isOwnedBy).not.toHaveBeenCalled()
+    expect(ctx.fleet.list().filter(view => view.sessionId === 'same')).toEqual([
+      expect.objectContaining({ kind: 'root', control: 'direct', parentSessionId: 'durable-parent' }),
+    ])
+    expect(ctx.fleet.inspect('same')).toEqual(expect.objectContaining({ kind: 'root', control: 'direct' }))
+    ctx.fleet.send('same', 'follow up')
+    ctx.fleet.steer('same', 'steer')
+    ctx.fleet.cancel('same')
+    expect(replacement.followup).toHaveBeenCalledOnce()
+    expect(replacement.steer).toHaveBeenCalledOnce()
+    expect(replacement.cancel).toHaveBeenCalledOnce()
+
+    detachReplacement?.()
+    expect(seen.at(-1)).toBe('disposed:root:durable-parent')
   })
 
   it('rejects every retained service operation after provider unload without registry or Agent access', async () => {
@@ -329,6 +514,7 @@ describe('Fleet L1 behavior', () => {
 
     await fleetFiber.dispose()
     const listAgents = vi.spyOn(ctx.agents, 'list')
+    const rootAgents = vi.spyOn(ctx.agents, 'roots')
     const getAgent = vi.spyOn(ctx.agents, 'get')
 
     expectFleetCode(() => fleet.list(), 'fleet-unavailable')
@@ -338,6 +524,7 @@ describe('Fleet L1 behavior', () => {
     expectFleetCode(() => fleet.cancel('root'), 'fleet-unavailable')
     expectFleetCode(() => fleet.subscribe(() => {}), 'fleet-unavailable')
     expect(listAgents).not.toHaveBeenCalled()
+    expect(rootAgents).not.toHaveBeenCalled()
     expect(getAgent).not.toHaveBeenCalled()
     expect(root.followup).not.toHaveBeenCalled()
     expect(root.steer).not.toHaveBeenCalled()

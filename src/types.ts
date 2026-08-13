@@ -24,15 +24,17 @@ export interface FleetCancelOptions extends FleetCallerOptions {
 /** Whether Fleet can write to one live agent and through which seam. */
 export type FleetControl = 'direct' | 'subagent' | 'observe-only'
 
-/** Product classification of one live agent. */
+/** AgentRegistry runtime ownership classification of one live agent. */
 export type FleetAgentKind = 'root' | 'delegated'
 
 /** JSON-safe projection of one process-local live agent. */
 export interface FleetAgentView {
   sessionId: string
   status: AgentStatus
+  /** AgentRegistry runtime ownership, independent of durable Session lineage. */
   kind: FleetAgentKind
   control: FleetControl
+  /** Durable Session lineage metadata, independent of runtime ownership. */
   parentSessionId?: string
   cwd?: string
   blank: boolean

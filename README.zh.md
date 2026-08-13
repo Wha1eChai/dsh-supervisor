@@ -4,7 +4,7 @@
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区插件，当前专注于同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供可替换的 `ctx.fleet` 服务，并通过该服务提供模型可调用的 `fleet_*` 工具。
 
-> **状态：Tool Preview（L0 + L1 + L2）。** Fleet 服务和五个工具 Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。
+> **状态：Tool Preview（L0 + L1 + L2 + L2.1）。** Fleet 服务、authoritative runtime ownership 分类和五个工具 Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
@@ -51,7 +51,7 @@ Subagent 和 workflow 工具属于可选 profile 组合。只有对应公开 sea
 
 `fleet_list` 的 canonical output 是 `{ agents, count }`，其中每个 Agent 视图都包含 `sessionId`。它是当前 DSH runtime 内稳定的路由标识，供 `fleet_inspect`、`fleet_send`、`fleet_steer` 和 `fleet_cancel` 使用。未来任何 Session-list UI 都必须显示 `sessionId` 并提供复制操作；本包目前不提供该 UI。
 
-`controlMode` 默认是 `read-only`。写工具只从 owning Agent Session 派生 caller identity；没有 owning Agent 时直接失败；self/delegated 权限继续由 `ctx.fleet` 判断。L2 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
+`controlMode` 默认是 `read-only`。写工具只从 owning Agent Session 派生 caller identity；没有 owning Agent 时直接失败；self/delegated 权限继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
 
 API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fleet.md)。
 
@@ -161,7 +161,7 @@ pnpm pack
 - [x] **L0** — 可安装 Bundle、构建、包元数据、真实 Loader smoke。
 - [x] **L1** — `FleetService`、进程内 Provider、生命周期隔离、keyless 测试。
 - [x] **L2** — `fleet_list`、`fleet_inspect`、`fleet_send`、`fleet_steer`、`fleet_cancel` 工具 Consumer。
-- [ ] **正确性优先项** — 使用 `ctx.agents.roots()` 判断 authoritative runtime root，而不是只依赖 lineage 元数据。
+- [x] **L2.1** — 通过 exact Agent 是否属于 `ctx.agents.roots()` 权威分类 runtime root/delegated，并与 durable lineage 元数据解耦。
 - [ ] **L2b** — 通过公开 subagent seam、携带精确 parent authority 的 delegated Session 写 API。
 - [ ] **L3** — 条件组合现有 Fleet、subagent 和 workflow Consumer 的 supervisor Agent preset。
 - [ ] **L4+** — 未来独立 profile、一等产品面和 transport；这些都不是当前支持。

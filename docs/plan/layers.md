@@ -1,11 +1,12 @@
 # 分层全景
 
-当前已交付范围是 L0–L2，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
+当前已交付范围是 L0–L2.1，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
 
 ```text
 L0  仓库骨架 + 可安装 bundle                       已交付
 L1  ctx.fleet Definition + 当前进程内 Provider + 单测 已交付
 L2  fleet_* 模型工具（Consumer）                    已交付
+L2.1 AgentRegistry runtime ownership 正确性修复      已交付
 L2b delegated Session 写路径                         未来
 L3  supervisor Agent preset（条件组合可选能力）       未来
 L4  独立 profile / first-class surface / transport   未来
@@ -21,11 +22,9 @@ L6  daemon / 多 runtime Provider / 权限深化           未来
 
 详见 [phase-l0.md](phase-l0.md)。
 
-## L1 — Fleet seam（已交付，含待修正确性项）
+## L1 — Fleet seam（已交付）
 
-`ctx.fleet` 可 `list` / `inspect` / `send` / `steer` / `cancel` / `subscribe`。当前 Provider 投影同一 DSH runtime 的 live Agent，单元测试覆盖现有权限、分类投影和消息来源。
-
-当前已有 root/delegated 投影，但仍以 `origin` / `parentSession` lineage 元数据推断。以 `ctx.agents.roots()` 作为 authoritative runtime-root classifier 是下一项 correctness priority，尚未完成；因此不能把当前 child/root 分类描述为完全正确。`kind`、`control`、`rootsOnly`、root 写授权和 delegated 写错误都可能受该缺口影响。
+`ctx.fleet` 可 `list` / `inspect` / `send` / `steer` / `cancel` / `subscribe`。当前 Provider 投影同一 DSH runtime 的 live Agent，单元测试覆盖权限、消息来源、transcript 投影和生命周期隔离。
 
 详见 [phase-l1.md](phase-l1.md)。
 
@@ -36,6 +35,14 @@ L6  daemon / 多 runtime Provider / 权限深化           未来
 Consumer 挂载控制模型可见性。已经 live 的 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前工具集合；不注入聊天消息，也不添加只用于能力广告的常驻 prompt prose。`fleet_list` 返回 `{ agents, count }`，每个 Agent 视图中的 `sessionId` 是后续 Fleet 操作的当前 runtime 路由标识。
 
 详见 [phase-l2.md](phase-l2.md)。Delegated followup / interrupt 需要精确 parent authority，单列后续 L2b，不从 Consumer 绕过 Service Definition。
+
+## L2.1 — Authoritative runtime ownership（已交付）
+
+Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 权威分类 `root` / `delegated`。Durable `origin` 与 `parentSession` 只作为 Session metadata；`parentSession` 仍独立投影为 `parentSessionId`。list、inspect、rootsOnly、root 写授权和 created/status/disposed event 共用该分类。
+
+Provider 使用 exact Agent 对象的 `WeakMap` 缓存，挂载时 seed 已经 live 的 Agent，并在 registry 删除后的 disposal event 中保留旧分类。同 `sessionId` replacement 不会被 stale disposal 误分类或清理。
+
+详见 [phase-l2.1.md](phase-l2.1.md)。
 
 ## L3 — Preset（未来）
 
