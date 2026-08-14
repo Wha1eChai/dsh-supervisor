@@ -15,7 +15,7 @@ export interface FleetRelayMessageSource {
   readonly deliveryId: FleetDeliveryId
 }
 
-const FLEET_DELIVERY_ID_PATTERN = /^fd_[A-Za-z0-9_-]+$/
+const FLEET_DELIVERY_ID_PATTERN = /^fd_[A-Za-z0-9_-]{16}$/
 
 /**
  * Parse one durable Fleet relay source into its canonical validated fields.

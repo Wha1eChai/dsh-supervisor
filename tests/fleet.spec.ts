@@ -346,6 +346,8 @@ describe('Fleet L1 behavior', () => {
       { kind: 'fleet-relay', version: 1, form: 'other', senderSessionId: 'sender', deliveryId: 'fd_form' },
       { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: '', deliveryId: 'fd_empty_sender' },
       { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_short' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_1234567890abcdefg' },
       { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: '' },
       { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'not-a-delivery' },
       { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_has space' },
@@ -358,7 +360,7 @@ describe('Fleet L1 behavior', () => {
     register(ctx, root)
 
     const view = ctx.fleet.inspect('root', { tailMessages: 99 })
-    expect(view.tailMessages).toHaveLength(8)
+    expect(view.tailMessages).toHaveLength(10)
     expect(view.tailMessages.filter(message => message.relay !== undefined)).toEqual([
       expect.objectContaining({ relay: { version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_1234567890abcdef' } }),
     ])
