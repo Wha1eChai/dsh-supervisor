@@ -13,6 +13,7 @@ import { FleetService } from '../src/service.js'
 import { FleetError } from '../src/types.js'
 import type {
   FleetAgentView,
+  FleetDeliveryReceipt,
   FleetInspectOptions,
   FleetInspectView,
   FleetListFilter,
@@ -121,7 +122,7 @@ class RecordingFleet extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string } {
+  ): FleetDeliveryReceipt {
     this.calls.sendSelected.push([selectionHandle, text, options])
     if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
@@ -129,14 +130,14 @@ class RecordingFleet extends FleetService {
         'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { sessionId: 'target', messageId: 'send-message' }
+    return { sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'] }
   }
 
   steerSelected(
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string } {
+  ): FleetDeliveryReceipt {
     this.calls.steerSelected.push([selectionHandle, text, options])
     if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
@@ -144,7 +145,7 @@ class RecordingFleet extends FleetService {
         'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { sessionId: 'target', messageId: 'steer-message' }
+    return { sessionId: 'target', messageId: 'steer-message', deliveryId: 'fd-steer' as FleetDeliveryReceipt['deliveryId'] }
   }
 
   cancelSelected(
@@ -299,6 +300,9 @@ describe('Fleet tool namespace and configuration', () => {
       if (schema.name !== 'fleet_list') {
         expect(Object.keys(schema.parameters.properties ?? {})).not.toContain('session_id')
       }
+      for (const forbidden of ['caller_session_id', 'sender_session_id', 'target_session_id', 'title', 'relay']) {
+        expect(Object.keys(schema.parameters.properties ?? {})).not.toContain(forbidden)
+      }
     }
   })
 
@@ -425,16 +429,17 @@ describe('Fleet read tools', () => {
 })
 
 describe('Fleet write tools', () => {
-  it('6. maps selected send/steer, original text, and caller identity; invalid selections fail closed', async () => {
+  it('6. maps selected send/steer, original text, and caller identity; model identity fields do not override it', async () => {
     const { ctx, fleet } = await harness()
     const owner = fakeAgent('caller')
 
     const sent = success(await call(ctx, 'fleet_send', {
       selection_handle: 'fs_send', text: '  keep spacing  ',
+      caller_session_id: 'forged-caller', sender_session_id: 'forged-sender', target_session_id: 'forged-target',
     }, { agent: owner }))
     expect(fleet.calls.sendSelected).toEqual([['fs_send', '  keep spacing  ', { callerSessionId: 'caller' }]])
-    expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message' })
-    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target.')
+    expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' })
+    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target. Delivery fd-send.')
     expect(ctx.tools.get('fleet_send')?.presentCall?.({
       selection_handle: 'fs_send', text: 'secret body',
     })).toEqual({
@@ -446,8 +451,8 @@ describe('Fleet write tools', () => {
       selection_handle: 'fs_steer', text: 'turn left',
     }, { agent: owner }))
     expect(fleet.calls.steerSelected).toEqual([['fs_steer', 'turn left', { callerSessionId: 'caller' }]])
-    expect(steered.value).toEqual({ sessionId: 'target', messageId: 'steer-message' })
-    expect(text(steered)).toBe('Submitted steering message steer-message for confirmed Fleet session target.')
+    expect(steered.value).toEqual({ sessionId: 'target', messageId: 'steer-message', deliveryId: 'fd-steer' })
+    expect(text(steered)).toBe('Submitted steering message steer-message for confirmed Fleet session target. Delivery fd-steer.')
     expect(ctx.tools.get('fleet_steer')?.presentCall?.({
       selection_handle: 'fs_steer', text: 'secret body',
     })).toEqual({

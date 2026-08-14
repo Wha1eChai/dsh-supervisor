@@ -47,6 +47,16 @@ const FLEET_MESSAGE_VALUE_SCHEMA = {
     role: { type: 'string', enum: ['user', 'assistant'], required: true },
     text: { type: 'string', required: true },
     textTruncated: { type: 'boolean', required: true },
+    relay: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        version: { type: 'integer', const: 1, required: true },
+        form: { type: 'string', enum: ['relay'], required: true },
+        senderSessionId: { type: 'string', required: true },
+        deliveryId: { type: 'string', required: true },
+      },
+    },
   },
 } as const
 
@@ -103,6 +113,7 @@ const FLEET_WRITE_VALUE_SCHEMA = {
   properties: {
     sessionId: { type: 'string', required: true },
     messageId: { type: 'string', required: true },
+    deliveryId: { type: 'string', required: true },
   },
 } as const
 
@@ -249,7 +260,7 @@ export function apply(ctx: Context, config: Config): void {
           schema: FLEET_WRITE_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}.`,
+            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}.`
           }],
         },
         async execute(args, exec) {
@@ -283,7 +294,7 @@ export function apply(ctx: Context, config: Config): void {
           schema: FLEET_WRITE_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Submitted steering message ${value.messageId} for confirmed Fleet session ${value.sessionId}.`,
+            text: `Submitted steering message ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}.`
           }],
         },
         async execute(args, exec) {

@@ -73,7 +73,7 @@ Fleet 可机会式读取可选的 `ctx.sessionTitle`，以 exact `agent.session`
 | Cordis `Service` + declaration merge | Fleet Definition |
 | `ctx.agents` | live Agent、runtime ownership 分类与 root 控制面 |
 | `Agent.session` / inbox / header | 视图投影 |
-| `createUserMessage` | `source.kind: 'plugin'` |
+| `createUserMessage` | direct `plugin` source and selected `fleet-relay` source |
 | `ctx.subagents`（可选） | delegated 控制分类；未来 child 写路径 |
 | `ctx.workflowEngine`（未来 L3 可选组合） | 主管编排 |
 | `ctx.tools` | `fleet_*` Consumer |
@@ -104,8 +104,8 @@ subscribe(listener) -> disposer
 
 listTargets(options) -> FleetTargetView[]
 inspectTarget(targetRef, options) -> FleetTargetInspectView
-sendSelected(selectionHandle, text, options) -> { sessionId, messageId }
-steerSelected(selectionHandle, text, options) -> { sessionId, messageId }
+sendSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
+steerSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
 cancelSelected(selectionHandle, options) -> { sessionId, accepted: true }
 ```
 
@@ -139,11 +139,13 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 取消使用 `{ kind: 'hook', reason: 'fleet-cancel' }`。
 
-发送/转向消息来源：
+Direct 发送/转向消息来源：
 
 ```ts
 { kind: 'plugin', plugin: 'dsh-supervisor' }
 ```
+
+Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source。`senderSessionId` 只能来自 selection 绑定的 exact caller Agent，`deliveryId` 由 Provider 生成并用于 receipt correlation。正文只提供 untrusted model-visible envelope，不是授权或 correlation 来源。Relay source 已包含在现有 durable `user/message` 中，不新增 Fleet Session event。
 
 对象范围：
 

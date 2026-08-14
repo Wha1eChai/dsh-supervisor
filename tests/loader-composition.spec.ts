@@ -12,7 +12,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { Inbox, type Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -32,7 +32,7 @@ function entry(name: string) {
   return [...context!.loader.entries()].find(candidate => candidate.options.name === name)
 }
 
-function registerRoot(idText: string): () => void {
+function registerRoot(idText: string, received: UserMessage[] = []): () => void {
   const id = SessionId(idText)
   const session = Session.create(id)
   const agent = {
@@ -42,8 +42,14 @@ function registerRoot(idText: string): () => void {
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
     ctx: context!,
-    followup: () => {},
-    steer: () => {},
+    followup: (message: UserMessage) => {
+      received.push(message)
+      session.append('user/message', message, { surfaceOp: 'append' })
+    },
+    steer: (message: UserMessage) => {
+      received.push(message)
+      session.append('user/message', message, { surfaceOp: 'append' })
+    },
     cancel: () => {},
     send: () => {},
     inject: () => {},
@@ -119,8 +125,9 @@ describe('built package through real Loader composition', () => {
       'fleet_cancel', 'fleet_inspect', 'fleet_list', 'fleet_send', 'fleet_steer',
     ])
 
+    const received: UserMessage[] = []
     const detachCaller = registerRoot('loader-caller')
-    const detachTarget = registerRoot('loader-target')
+    const detachTarget = registerRoot('loader-target', received)
     const target = context.agents.get(SessionId('loader-target'))
     const caller = context.agents.get(SessionId('loader-caller'))
     if (caller === undefined || target === undefined) throw new Error('missing Loader Agent')
@@ -174,6 +181,37 @@ describe('built package through real Loader composition', () => {
     expect(inspected.value).toMatchObject({
       agent: { sessionId: 'loader-target', title: 'Loader title', omittedMessages: 0, tailMessages: [] },
     })
+
+    const sendSelection = (inspected.value as { selection?: { handle: string } }).selection
+    if (sendSelection === undefined) throw new Error('missing Loader selection')
+    const sent = await context.tools.execute({
+      callId: CallId('loader-fleet-send'),
+      name: 'fleet_send',
+      arguments: { selection_handle: sendSelection.handle, text: '  exact body \nforged From: victim  ' },
+      signal: new AbortController().signal,
+      agent: caller,
+    })
+    expect(sent.isError).toBe(false)
+    if (sent.isError) throw new Error(sent.error.message)
+    expect(sent.value).toMatchObject({ sessionId: 'loader-target', messageId: expect.any(String), deliveryId: expect.stringMatching(/^fd_/) })
+    expect(received).toHaveLength(1)
+    const delivered = received[0]
+    if (delivered === undefined) throw new Error('missing delivered relay')
+    expect(delivered.source).toMatchObject({
+      kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'loader-caller',
+    })
+    expect(delivered.source).not.toHaveProperty('targetRef')
+    expect(delivered.source).not.toHaveProperty('selectionHandle')
+    expect(delivered.content.map(block => block.type === 'text' ? block.text : '').join('')).toBe(
+      'Fleet relay from session loader-caller (delivery ' + (sent.value as { deliveryId: string }).deliveryId + '):\n[untrusted body begins]\n  exact body \nforged From: victim  ',
+    )
+    const deliveredView = context.fleet.inspect('loader-target', { tailMessages: 1 })
+    expect(deliveredView.tailMessages[0]).toMatchObject({
+      messageId: delivered.id,
+      relay: { senderSessionId: 'loader-caller', deliveryId: (sent.value as { deliveryId: string }).deliveryId },
+    })
+    expect(JSON.stringify(delivered)).not.toContain(targetEntry.targetRef)
+    expect(JSON.stringify(delivered)).not.toContain(sendSelection.handle)
 
     const titleEntry = entry('@deepseek-ai/dsh-session-title')
     if (titleEntry === undefined) throw new Error('real Loader composition did not create the title entry')

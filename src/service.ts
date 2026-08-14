@@ -2,6 +2,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type {
   FleetAgentView,
   FleetCallerOptions,
+  FleetDeliveryReceipt,
   FleetCancelOptions,
   FleetEvent,
   FleetInspectOptions,
@@ -63,26 +64,26 @@ export abstract class FleetService extends Service {
    * @param selectionHandle - opaque selection returned by `inspectTarget`.
    * @param text - non-empty follow-up text.
    * @param options - owning caller identity.
-   * @returns exact target Session identity and created message identity.
+   * @returns exact target Session identity, created message identity, and opaque delivery identity.
    */
   abstract sendSelected(
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string }
+  ): FleetDeliveryReceipt
 
   /**
    * Submit steering through one single-attempt confirmed target selection.
    * @param selectionHandle - opaque selection returned by `inspectTarget`.
    * @param text - non-empty steering text.
    * @param options - owning caller identity.
-   * @returns exact target Session identity and created message identity.
+   * @returns exact target Session identity, created message identity, and opaque delivery identity.
    */
   abstract steerSelected(
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string }
+  ): FleetDeliveryReceipt
 
   /**
    * Cancel through one single-attempt confirmed target selection.

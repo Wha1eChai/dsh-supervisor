@@ -59,8 +59,8 @@ fleet_send / fleet_steer / fleet_cancel(selection_handle)
 |---|---|---|
 | `fleet_list` | `roots_only?`, `running_only?` | `{ agents: FleetTargetView[], count }` |
 | `fleet_inspect` | `target_ref`, `tail_messages?` | `{ agent: FleetInspectView, selection? }` |
-| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId }` |
-| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId }` |
+| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
+| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
 | `fleet_cancel` | `selection_handle`, `keep_inbox?` | `{ sessionId, accepted: true }` |
 
 `FleetTargetView` 包含完整 `FleetAgentView`，并增加：
@@ -126,6 +126,20 @@ Direct `send` / `steer` 的消息来源固定为：
 { kind: 'plugin', plugin: 'dsh-supervisor' }
 ```
 
+Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source：
+
+```ts
+{
+  kind: 'fleet-relay'
+  version: 1
+  form: 'relay'
+  senderSessionId: SessionId
+  deliveryId: FleetDeliveryId
+}
+```
+
+`senderSessionId` 只能来自 Provider 保存的 exact caller Agent；`deliveryId` 由 Provider 生成，用于 receipt 和 inspect correlation。工具输入、标题、target reference、selection handle 和正文都不能覆盖这些字段。正文以 encoded sender header 加原始 body 的独立 text blocks 发送；正文是不可信模型输入，不参与授权或 correlation 解析。Direct caller 的字符串 `callerSessionId` 不会伪造 relay source。
+
 Direct/selected `cancel` 的原因固定为：
 
 ```ts
@@ -155,7 +169,7 @@ Runtime delegated Agent 保持只读：有 `ctx.subagents` 时 direct write 返�
 
 `title` 是可选的展示字段，只在 `sessionTitle` 服务可用且 exact live Session 的日志中已有 `session/title` 时出现。Fleet 只调用 `get(agent.session)`，不调用 `refresh`、`register` 或任何标题 Provider；服务缺失、卸载或没有已记录标题时省略该字段。标题不参与 Session identity、list 顺序、过滤、target reference、selection、路由或授权。
 
-`FleetInspectView` 还包含 `omittedMessages` 和 `tailMessages`。`omittedMessages` 只统计过滤出 user/assistant 后因 tail 上限省略的消息数，不统计 tool、reasoning 或其他角色。每条 `FleetMessageSummary.textTruncated` 只表示当前摘要的原始文本超过 `maxMessageTextChars`，与 tail omission 独立。
+`FleetInspectView` 还包含 `omittedMessages` 和 `tailMessages`。Relay 消息的摘要可带窄 `relay` 投影 `{ version, form, senderSessionId, deliveryId }`；不会暴露 target reference 或 selection handle。`omittedMessages` 只统计过滤出 user/assistant 后因 tail 上限省略的消息数，不统计 tool、reasoning 或其他角色。每条 `FleetMessageSummary.textTruncated` 只表示当前摘要的原始文本超过 `maxMessageTextChars`，与 tail omission 独立。
 
 ## 错误码
 
@@ -189,6 +203,8 @@ Runtime delegated Agent 保持只读：有 `ctx.subagents` 时 direct write 返�
 | `fleet-caller-unavailable` | confirmed-target caller 已不是 exact live Agent |
 | `fleet-target-reference-invalid` | target reference unknown、expired、mismatched 或 stale |
 | `fleet-selection-invalid` | selection unknown、expired、mismatched、stale 或已消费 |
+
+Selected write receipt 的 `messageId` 是消息 correlation，`deliveryId` 是 Provider 生成的 relay observability identity。Receipt 只代表 Agent inbox 方法同步接受，不表示目标已 claim、完成 turn 或产生 reply；selected steer 不拥有独立 reply 语义。
 
 无效 reference/selection 的错误明确说明：
 

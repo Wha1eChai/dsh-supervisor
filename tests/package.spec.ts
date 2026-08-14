@@ -11,6 +11,7 @@ describe('package entry point', () => {
       peerDependenciesMeta: Record<string, { optional?: boolean }>
       exports: Record<string, unknown>
     }
+    expect(packageJson.peerDependencies['@deepseek-ai/dsh-brand']).toBe('0.1.0-rc.6')
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-session-title']).toBe('0.1.0-rc.6')
     expect(packageJson.peerDependenciesMeta['@deepseek-ai/dsh-session-title']).toEqual({ optional: true })
     expect(packageJson.exports).toMatchObject({ '.': expect.any(Object), './tool': expect.any(Object) })
@@ -27,6 +28,7 @@ describe('package entry point', () => {
     expect(unwrapped.apply).toBe(plugin.apply)
     expect(plugin.FleetService).toBeTypeOf('function')
     expect(plugin.InProcessFleetProvider).toBeTypeOf('function')
+    expect('FleetRelayMessageSource' in plugin).toBe(false)
   })
 
   it('keeps the tool subpath namespace Loader-safe', () => {
