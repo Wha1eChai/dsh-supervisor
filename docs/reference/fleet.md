@@ -51,6 +51,10 @@ Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最�
 
 五个工具都要求 owning Agent，并且只从 `exec.agent.session.id` 派生 caller identity。模型不能提交 caller id。List/inspect 为 parallel；send/steer/cancel 为 exclusive。
 
+## 写入工具的副作用
+
+`fleet_send` 会接受消息、唤醒目标 Agent 的工作循环，并可能触发模型请求和工具调用，因此可能消耗模型与工具资源。`fleet_steer` 会改变目标 Agent 正在进行的工作，并可能触发后续模型请求和工具调用。`fleet_cancel` 会中断目标 Agent 的活动工作；取消不会回滚已经被模型或工具接受的工作，工具调用外层的 late abort 也不撤销已发生的 Fleet 写入。
+
 ## 模型 confirmed-target protocol
 
 ```text

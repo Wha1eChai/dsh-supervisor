@@ -1,0 +1,77 @@
+name: Bug report
+description: Report a reproducible problem in dsh-cross-session.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, tokens, transcripts containing sensitive data, `.env` files, or a complete `DSH_HOME` in this issue. Use the private security advisory link for vulnerabilities.
+  - type: input
+    id: package-version
+    attributes:
+      label: dsh-cross-session version
+      description: Provide the installed package version or the source commit.
+      placeholder: 0.1.0-rc.1 or abc1234
+    validations:
+      required: true
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH version
+      description: Include the exact DSH version, such as 0.1.0-rc.6.
+      value: 0.1.0-rc.6
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js and pnpm versions
+      description: Include Node 22.19.0 or Node 24.x and pnpm 11.7.0 when applicable.
+      placeholder: Node 24.11.1; pnpm 11.7.0
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, macOS 15
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest same-process reproduction, including the profile and tool mode.
+      placeholder: |
+        1. Install ...
+        2. Configure ...
+        3. Run ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove secrets and unrelated personal data before posting.
+      render: text
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: Secret removal
+      options:
+        - label: I have removed API keys, tokens, sensitive transcript content, `.env` values, and private DSH home data.
+          required: true

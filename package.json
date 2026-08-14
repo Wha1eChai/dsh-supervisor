@@ -1,6 +1,6 @@
 {
   "name": "@wha1echai/dsh-cross-session",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "description": "Same-runtime cross-Session discovery and communication for DeepSeek Harness",
   "license": "MIT",
   "repository": {
@@ -63,7 +63,8 @@
     "build": "tsc -p tsconfig.json",
     "prepare": "pnpm run build",
     "test": "pnpm run build && vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "check:packed": "node scripts/check-packed-content.mjs"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"
@@ -106,6 +107,7 @@
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
     "@types/node": "^22.20.0",
+    "tar": "^7.5.22",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   }
