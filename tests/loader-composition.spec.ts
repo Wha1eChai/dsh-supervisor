@@ -11,8 +11,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 
@@ -28,6 +29,27 @@ afterEach(async () => {
 
 function entry(name: string) {
   return [...context!.loader.entries()].find(candidate => candidate.options.name === name)
+}
+
+function registerRoot(idText: string): () => void {
+  const id = SessionId(idText)
+  const session = Session.create(id)
+  const agent = {
+    id,
+    options: {},
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle',
+    ctx: context!,
+    followup: () => {},
+    steer: () => {},
+    cancel: () => {},
+    send: () => {},
+    inject: () => {},
+    whenIdle: () => Promise.resolve(),
+    runMaintenance: (task: (signal: AbortSignal) => Promise<void>) => task(new AbortController().signal),
+  } as Agent
+  return context!.agents.register(agent)
 }
 
 describe('built package through real Loader composition', () => {
@@ -85,16 +107,28 @@ describe('built package through real Loader composition', () => {
       'fleet_cancel', 'fleet_inspect', 'fleet_list', 'fleet_send', 'fleet_steer',
     ])
 
+    const detachCaller = registerRoot('loader-caller')
+    const detachTarget = registerRoot('loader-target')
+    const caller = context.agents.get(SessionId('loader-caller'))
+    if (caller === undefined) throw new Error('missing Loader caller Agent')
     const listed = await context.tools.execute({
       callId: CallId('loader-fleet-list'),
       name: 'fleet_list',
       arguments: {},
       signal: new AbortController().signal,
+      agent: caller,
     })
     expect(listed.isError).toBe(false)
     if (listed.isError) throw new Error(listed.error.message)
-    expect(listed.value).toEqual({ agents: [], count: 0 })
-    expect(listed.content).toEqual([{ type: 'text', text: 'No live Fleet sessions.' }])
+    expect(listed.value).toMatchObject({ count: 2 })
+    const listedValue = listed.value as { agents: unknown[]; count: number }
+    expect(listedValue.agents).toEqual([
+      expect.objectContaining({ sessionId: 'loader-caller', targetRef: expect.stringMatching(/^ft_/) }),
+      expect.objectContaining({ sessionId: 'loader-target', targetRef: expect.stringMatching(/^ft_/) }),
+    ])
+    expect(listed.content[0]).toMatchObject({ type: 'text' })
+    detachTarget()
+    detachCaller()
 
     const consumer = entry('@wha1echai/dsh-supervisor/tool')
     if (consumer === undefined) throw new Error('real Loader composition did not create the Consumer entry')

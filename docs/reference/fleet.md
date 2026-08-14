@@ -4,19 +4,7 @@
 
 当前 Provider 只访问同一运行中 DSH runtime（即同一个 `dsh` 进程）的 live Agent。它不提供跨进程、跨终端或跨设备、本地到服务器、remote Web、gateway、daemon 或多 runtime 路由。
 
-## 安装
-
-```powershell
-dsh plugin --profile web add D:\coding\programs\dsh\dsh-supervisor
-dsh --profile web --dump-config
-dsh --profile web
-```
-
-开发和测试必须设置隔离的 `DSH_HOME`，不要修改现有用户 profile。这里的 `web` profile 只是现有 DSH 宿主，不表示本插件提供 remote Web 或多 Session UI。
-
 ## 配置
-
-Bundle row 可在 profile patch 中整体重写配置：
 
 ```yaml
 - id: dsh-supervisor
@@ -25,26 +13,25 @@ Bundle row 可在 profile patch 中整体重写配置：
     defaultTailMessages: 8
     maxTailMessages: 32
     maxMessageTextChars: 2000
+    targetRefTtlMs: 300000
+    selectionTtlMs: 60000
+    maxSelectionsPerCaller: 32
 ```
 
 | 字段 | 默认值 | 约束 | 含义 |
 |---|---:|---|---|
-| `defaultTailMessages` | 8 | 正安全整数，不大于 `maxTailMessages` | `inspect()` 未指定数量时返回的尾部消息数 |
-| `maxTailMessages` | 32 | 正安全整数 | 单次 `inspect()` 的尾部消息上限 |
+| `defaultTailMessages` | 8 | 正安全整数，不大于 `maxTailMessages` | direct/confirmed inspect 的默认尾部消息数 |
+| `maxTailMessages` | 32 | 正安全整数 | 单次 inspect 的尾部消息上限 |
 | `maxMessageTextChars` | 2000 | 正安全整数 | 每条摘要的文本字符上限 |
+| `targetRefTtlMs` | 300000 | 正安全整数 | caller-bound target reference 有效期 |
+| `selectionTtlMs` | 60000 | 正安全整数 | single-attempt write selection 有效期 |
+| `maxSelectionsPerCaller` | 32 | 正安全整数 | 每个 exact caller 保留的最大 live selection 数 |
 
-无效配置在插件加载时失败。
+Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最旧记录。
 
 ## 工具配置与发现
 
-Bundle 插入独立的 `dsh-supervisor-tools` 行。只有该 Consumer 实际挂载时，`fleet_*` 才会注册。默认 `controlMode: read-only`，可在 profile 的 `cordis.patch.yml` 中完整覆盖该行：
-
-```yaml
-- id: dsh-supervisor-tools
-  name: '@wha1echai/dsh-supervisor/tool'
-  config:
-    controlMode: message
-```
+独立 `dsh-supervisor-tools` row 默认 `controlMode: read-only`：
 
 | `controlMode` | 模型可见工具 |
 |---|---|
@@ -52,38 +39,58 @@ Bundle 插入独立的 `dsh-supervisor-tools` 行。只有该 Consumer 实际挂
 | `message` | 只读工具 + `fleet_send`、`fleet_steer` |
 | `full` | 全部工具，包括 `fleet_cancel` |
 
-`controlMode` 是部署级可见性选择，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()`。配置 HMR 会撤销旧工具集合再注册新集合。
+已运行 Session 在下一次模型请求中通过正常 ToolRuntime composition 看到当前工具。该入口只注册 `fleet_*`，不注册或宣传 subagent/workflow 工具。
 
-已运行的 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前注册的工具；不生成聊天消息，也不需要只用于工具广告的常驻 system prompt prose。该入口只注册 `fleet_*`，不注册或宣传 subagent/workflow 工具；这些能力必须由对应公开 seam 和官方 Consumer 独立挂载。
+五个工具都要求 owning Agent，并且只从 `exec.agent.session.id` 派生 caller identity。模型不能提交 caller id。List/inspect 为 parallel；send/steer/cancel 为 exclusive。
 
-## 模型工具
+## 模型 confirmed-target protocol
 
-| 工具 | 参数 | Canonical output | 并发 |
-|---|---|---|---|
-| `fleet_list` | `roots_only?`、`running_only?` | `{ agents: FleetAgentView[], count: number }` | parallel |
-| `fleet_inspect` | `session_id`、`tail_messages?` | `FleetInspectView` | parallel |
-| `fleet_send` | `session_id`、`text` | `{ sessionId, messageId }` | exclusive |
-| `fleet_steer` | `session_id`、`text` | `{ sessionId, messageId }` | exclusive |
-| `fleet_cancel` | `session_id`、`keep_inbox?` | `{ sessionId, accepted: true }` | exclusive |
+```text
+fleet_list
+  -> caller-bound target_ref
+fleet_inspect(target_ref)
+  -> exact-Agent-bound selection_handle when writable
+fleet_send / fleet_steer / fleet_cancel(selection_handle)
+```
 
-`fleet_list` 返回：
+模型不再为 inspect/write 提交 `session_id`，也没有 direct-ID fallback。Handle 是 byte-exact opaque value，不做 trim 或其他规范化；损坏、带首尾空白或错误的 handle 只会失效，不会被解析为 Session ID 或替换成其他目标。
+
+| 工具 | 参数 | Canonical output |
+|---|---|---|
+| `fleet_list` | `roots_only?`, `running_only?` | `{ agents: FleetTargetView[], count }` |
+| `fleet_inspect` | `target_ref`, `tail_messages?` | `{ agent: FleetInspectView, selection? }` |
+| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId }` |
+| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId }` |
+| `fleet_cancel` | `selection_handle`, `keep_inbox?` | `{ sessionId, accepted: true }` |
+
+`FleetTargetView` 包含完整 `FleetAgentView`，并增加：
 
 ```ts
 {
-  agents: FleetAgentView[]
-  count: number
+  targetRef: string
+  targetRefExpiresAt: number
 }
 ```
 
-每个 `FleetAgentView` 都包含 `sessionId`。它是当前 DSH runtime 内 inspect/send/steer/cancel 的 canonical routing identifier。未来任何 Session-list UI 必须原样展示它并提供复制操作；当前 package 不提供该 UI。它也不是已定义的跨 runtime 或全局远程地址。
+`fleet_inspect` 返回：
 
-`session_id` 会 trim 后再调用 Service，并且不能为空。`fleet_inspect.tail_messages` 必须是正安全整数。`fleet_send` / `fleet_steer` 只用 trim 判断正文是否为空，传给 Service 的仍是原始 `text`。`fleet_cancel` 未提供 `keep_inbox` 时不会伪造 `keepInbox: false`。
+```ts
+{
+  agent: FleetInspectView
+  selection?: {
+    handle: string
+    expiresAt: number
+  }
+}
+```
 
-读工具允许 agentless 程序化调用。所有写工具要求 owning Agent，并且只从 `exec.agent.session.id` 派生 `callerSessionId`；模型参数中没有 caller id。预先 abort 的写调用在进入 Fleet Service 前失败。`@deepseek-ai/dsh-tools@0.1.0-rc.6` 若在 Fleet Service 已同步接受写入后、工具结果最终物化前收到 caller cancellation，会返回 `ABORTED`；该结果不表示 Fleet 写入回滚，调用方应通过后续读工具重新观察状态。其他工具错误同样通过 ToolRuntime 的 `isError` 结果返回，不包装成成功 union。
+Self target 和 runtime delegated target 可以 inspect，但不返回 selection。写成功结果中的 `sessionId` 来自 Provider 的 exact target record，Consumer 不从 handle 或模型输入推断。
 
-五个工具都使用 generic card：list/inspect 为 `search`，send/steer/cancel 为 `execute`。Canonical value 供 Code Mode 和程序化 Consumer 使用，模型文本由工具的 `output.render` 生成。Card presenter 对 replay 参数安全解析；空白 `session_id`、无效 `tail_messages` 或其他无效 card 参数返回 `undefined`，由 ToolRuntime 使用 generic fallback。
+Selection 固定 single-attempt。空文本等输入失败发生在消费前；所有 caller、target 和当前写授权检查通过后，在调用 Agent 副作用前消费。Agent 方法抛错或 ToolRuntime late abort 都不恢复 selection。
 
 ## Service
+
+可信程序化 Consumer 可继续使用 direct lane：
 
 ```ts
 ctx.fleet.list(filter?)
@@ -94,39 +101,38 @@ ctx.fleet.cancel(sessionId, options?)
 ctx.fleet.subscribe(listener)
 ```
 
-### `list`
+模型工具使用 confirmed-target lane：
 
-只返回当前 DSH runtime，也就是当前 `dsh` 进程中的 live Agent。`rootsOnly` 按 AgentRegistry runtime ownership 排除 exact Agent 不属于 `ctx.agents.roots()` 的 delegated Agent；`runningOnly` 只保留 `status === 'running'`。
+```ts
+ctx.fleet.listTargets(options)
+ctx.fleet.inspectTarget(targetRef, options)
+ctx.fleet.sendSelected(selectionHandle, text, options)
+ctx.fleet.steerSelected(selectionHandle, text, options)
+ctx.fleet.cancelSelected(selectionHandle, options)
+```
 
-### `inspect`
+两类 handle 只由 Provider 保存，并同时绑定：
 
-返回 Agent 视图和经过限量、截断的 user/assistant 文本摘要。不会返回 `Agent`、`Session` 或原始事件数组。
+- exact caller Agent 与 `callerSessionId`；
+- exact target Agent 与原始 `sessionId`；
+- 当前 Provider instance；
+- expiry。
 
-### `send` / `steer`
+每次使用都重新检查 `ctx.agents.get(id) === exactAgent`。Caller/target disposal、同 ID replacement、expiry、caller mismatch、Provider unload 和重复 selection 使用都会 fail closed。Provider unload 后 retained Service reference 不读取 AgentRegistry。
 
-当前只写被 Provider 分类为 live root 的 Agent。消息来源固定为：
+Direct `send` / `steer` 的消息来源固定为：
 
 ```ts
 { kind: 'plugin', plugin: 'dsh-supervisor' }
 ```
 
-传入与目标相同的 `callerSessionId` 会被拒绝。
-
-### `cancel`
-
-当前只取消被 Provider 分类为 live root 的 Agent，原因固定为：
+Direct/selected `cancel` 的原因固定为：
 
 ```ts
 { kind: 'hook', reason: 'fleet-cancel' }
 ```
 
-`keepInbox` 原样传给 Agent。
-
-### `subscribe`
-
-事件类型为 `created`、`status`、`disposed`。返回的 disposer 幂等。listener 的同步异常或 Promise 拒绝会被记录，不影响 Agent 生命周期和其他 listener。
-
-## Agent 视图
+## Agent 视图与 runtime ownership
 
 ```ts
 interface FleetAgentView {
@@ -142,23 +148,45 @@ interface FleetAgentView {
 }
 ```
 
-`kind` 的唯一权威来源是 exact live Agent 是否属于 `ctx.agents.roots()`：属于时为 `root`，否则为 `delegated`。该分类同时驱动 `control`、`rootsOnly`、send/steer/cancel 写授权，以及 created/status/disposed event。
+`kind` 的唯一权威来源是 exact live Agent 是否属于 `ctx.agents.roots()`。Durable `origin` 和 `parentSession` 不参与 runtime classification 或授权；`parentSession` 只投影为 lineage metadata。
 
-`session.header.origin` 和 `session.header.parentSession` 不参与 runtime classification 或授权。`parentSession` 仍原样投影为 `parentSessionId`，它只表示 durable Session lineage：runtime root 可以带 `parentSessionId`，runtime delegated Agent 也可以没有该字段。
-
-Provider 按 exact Agent 对象缓存已观察到的 kind，并在挂载时 seed 已经 live 的 Agent。由于 `agent/disposed` 在 registry 删除后发出，disposal event 只使用该对象的缓存分类，不按 session id 查询当前 live Agent，也不重新读取 roots。同 id replacement 因此不会受 stale disposal 影响。
-
-当前版本不写 runtime delegated Agent：存在 `ctx.subagents` 时返回 `fleet-delegated-write-deferred`；不存在时返回 `fleet-observe-only`。后续 L2b 需要给 Fleet Service 设计携带精确 parent authority 的 API，工具 Consumer 不会绕过 Service Definition 直接调用 subagent seam。
+Runtime delegated Agent 保持只读：有 `ctx.subagents` 时 direct write 返回 `fleet-delegated-write-deferred`，否则返回 `fleet-observe-only`。Confirmed inspect 不为 delegated target 签发 selection。L2b 才会设计精确 parent authority 的 child write API。
 
 ## 错误码
 
-`FleetError.code` 是 Consumer 和后续可能的 transport 使用的稳定字段。
+`FleetError` 继承 DSH `HarnessError`，真实 ToolRuntime 保留：
+
+```json
+{
+  "name": "FleetError",
+  "code": "fleet-selection-invalid"
+}
+```
+
+每个 `FleetError` 同时提供：
+
+```json
+{
+  "actionTaken": false,
+  "targetSubstitutionAllowed": false,
+  "nextAction": "relist-or-ask-user"
+}
+```
 
 | code | 条件 |
 |---|---|
-| `fleet-unavailable` | Provider 已卸载，旧 Service 引用不再可用 |
-| `fleet-not-found` | 当前 DSH runtime 的 live Fleet 中没有该 `sessionId` |
-| `fleet-self-target` | 调用方控制自己 |
-| `fleet-delegated-write-deferred` | 被分类为 delegated 的 Session 可由 subagent seam 控制，但当前 Fleet API 尚未携带精确 parent authority |
-| `fleet-observe-only` | 被分类为 delegated 的 Session 没有可用 subagent seam |
-| `fleet-empty-text` | send/steer 文本为空或仅含空白 |
+| `fleet-unavailable` | Provider 已卸载 |
+| `fleet-not-found` | direct API 找不到 live `sessionId` |
+| `fleet-self-target` | direct caller 控制自己 |
+| `fleet-delegated-write-deferred` | delegated write 需要未来 L2b parent authority |
+| `fleet-observe-only` | delegated target 没有可用 subagent seam |
+| `fleet-empty-text` | send/steer 文本为空 |
+| `fleet-caller-unavailable` | confirmed-target caller 已不是 exact live Agent |
+| `fleet-target-reference-invalid` | target reference unknown、expired、mismatched 或 stale |
+| `fleet-selection-invalid` | selection unknown、expired、mismatched、stale 或已消费 |
+
+无效 reference/selection 的错误明确说明：
+
+```text
+No action was taken. Do not substitute another Fleet session. Relist or ask the user.
+```

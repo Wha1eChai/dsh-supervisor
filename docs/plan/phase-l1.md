@@ -67,7 +67,7 @@ updatedAt?
 
 `inspect` 在 view 之上加尾部文本摘要（从 `session.deriveMessages()` 取 user/assistant 文本，按配置截断）。禁止返回 `Agent` / `Session` / 全量 event 数组。
 
-`sessionId` 是当前 DSH runtime 内稳定的 Fleet 路由标识。`list()` 的每个 view 都必须保留它，后续 inspect/send/steer/cancel 使用它寻址；它不是全局或跨 runtime remote address。
+`sessionId` 是当前 DSH runtime 内稳定的 Fleet direct-Service 路由标识。`list()` 的每个 view 都必须保留它，可信程序化 Consumer 的 direct inspect/send/steer/cancel 使用它寻址；L2.2 模型工具改用 confirmed-target handle。它不是全局或跨 runtime remote address。
 
 ## 插件配置
 

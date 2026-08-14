@@ -33,21 +33,29 @@ describe('package entry point', () => {
       defaultTailMessages: 8,
       maxTailMessages: 32,
       maxMessageTextChars: 2000,
+      targetRefTtlMs: 300_000,
+      selectionTtlMs: 60_000,
+      maxSelectionsPerCaller: 32,
     })
-    expect(() => plugin.Config({
-      defaultTailMessages: 0, maxTailMessages: 32, maxMessageTextChars: 2000,
-    })).toThrow()
-    expect(() => plugin.Config({
-      defaultTailMessages: 1.5, maxTailMessages: 32, maxMessageTextChars: 2000,
-    })).toThrow()
-    expect(() => plugin.Config({
-      defaultTailMessages: 8, maxTailMessages: -1, maxMessageTextChars: 2000,
-    })).toThrow()
-    expect(() => plugin.Config({
-      defaultTailMessages: 8, maxTailMessages: 32, maxMessageTextChars: 0,
-    })).toThrow()
-    expect(() => plugin.Config({
-      defaultTailMessages: 8, maxTailMessages: 32, maxMessageTextChars: Number.MAX_VALUE,
-    })).toThrow()
+    const valid = {
+      defaultTailMessages: 8,
+      maxTailMessages: 32,
+      maxMessageTextChars: 2000,
+      targetRefTtlMs: 300_000,
+      selectionTtlMs: 60_000,
+      maxSelectionsPerCaller: 32,
+    }
+    for (const invalid of [
+      { ...valid, defaultTailMessages: 0 },
+      { ...valid, defaultTailMessages: 1.5 },
+      { ...valid, maxTailMessages: -1 },
+      { ...valid, maxMessageTextChars: 0 },
+      { ...valid, maxMessageTextChars: Number.MAX_VALUE },
+      { ...valid, targetRefTtlMs: 0 },
+      { ...valid, selectionTtlMs: 1.5 },
+      { ...valid, maxSelectionsPerCaller: -1 },
+    ]) {
+      expect(() => plugin.Config(invalid)).toThrow()
+    }
   })
 })

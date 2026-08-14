@@ -1,6 +1,6 @@
 # 产品
 
-`dsh-supervisor` 当前首先解决同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供 **Fleet capability seam** 和模型可调用的 `fleet_*` 工具，让一个 live Session 能以稳定 `sessionId` 观察或控制另一个 live Session。
+`dsh-supervisor` 当前首先解决同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供 **Fleet capability seam** 和模型可调用的 `fleet_*` 工具，让一个 live Session 观察或控制另一个 live Session。可信程序化 Consumer 使用稳定 `sessionId`；模型工具使用 Provider 签发的短期 target reference 和 write selection。
 
 当前产品面是进程内 Service/API 和模型工具，不是第二个 harness、远程控制服务或多 Session UI。
 
@@ -60,8 +60,10 @@ Web / Electron / transport 未来可选 Consumer 或产品面
 
 `sessionId` 是当前 DSH runtime 内第一等、稳定的 Fleet 路由标识：
 
-- `fleet_list` 的 canonical output `{ agents, count }` 中，每个 Agent 视图都包含 `sessionId`。
-- `fleet_inspect`、`fleet_send`、`fleet_steer` 和 `fleet_cancel` 使用它寻址。
+- direct Fleet Service API 继续以 `sessionId` 寻址可信程序化 Consumer。
+- `fleet_list` 的模型 canonical output `{ agents, count }` 中，每个 Agent 视图同时包含 `sessionId` 和 caller-bound `targetRef`。
+- 模型先用 `target_ref` inspect；Provider 确认 exact target 后签发 single-attempt `selectionHandle`，send/steer/cancel 只接受该 handle。
+- Handle 损坏、过期、caller mismatch、Agent replacement 或 Provider unload 都 fail closed，不会替换目标。
 - 未来任何面向人的 Session-list UI 必须展示 `sessionId` 并提供复制操作；当前没有该 UI。
 - `sessionId` 不是已定义的跨 runtime 或全局远程地址。未来多 runtime 支持必须另外设计 runtime namespace 和寻址。
 

@@ -31,7 +31,8 @@ Consumer -> FleetService <- Provider
 - The Fleet tool Consumer registers and describes only `fleet_*` tools. It must not copy subagent or workflow schemas, invoke their implementations, or advertise unavailable optional capabilities.
 - Do not retain or invoke `AgentHandle.dispose`.
 - Views and transport-facing results remain lossless JSON values; do not expose `Agent`, `Session`, raw event arrays, functions, or Cordis objects.
-- `sessionId` is the stable Fleet routing identifier within the current DSH runtime. Preserve it in list results, selectors, errors, and future surfaces; any future Session-list UI must display it and provide a copy action without claiming that UI exists today.
+- `sessionId` is the stable direct-Service routing identifier within the current DSH runtime. Preserve it in views, errors, and future surfaces; any future Session-list UI must display it and provide a copy action without claiming that UI exists today.
+- Model-facing inspect/write tools use Provider-issued caller-bound target references and exact-Agent-bound single-attempt selections. Do not restore a model-visible direct `sessionId` fallback.
 
 ## Plugin and lifecycle rules
 
@@ -57,7 +58,7 @@ Follow the official tool authoring reference before adding or changing a tool.
 - `output.render` owns model-facing text. Tool schemas, descriptions, rendered text, error behavior, and card intent are user-visible behavior.
 - Choose UI render intent up front. Fleet tools use a generic card unless a later design establishes a more specific neutral card.
 - Presentation functions are pure functions of arguments and durable result data: no I/O, clock, random values, or session reads.
-- Honor `exec.signal` for asynchronous work. Use `exec.agent?.session.id` as `callerSessionId` for write tools; fail loud when safe self-target protection requires an owning Agent but none exists.
+- Honor `exec.signal` for asynchronous work. Confirmed-target list, inspect, and write tools all require an owning Agent and derive `callerSessionId` only from `exec.agent.session.id`.
 - Do not duplicate authorization policy in tools. Deployment policy belongs in configuration or the Tools policy extension points.
 
 ## Versions and package management

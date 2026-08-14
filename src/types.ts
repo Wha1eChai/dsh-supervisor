@@ -1,4 +1,5 @@
 import type { AgentStatus } from '@deepseek-ai/dsh-agent'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /** Filters applied to the process-local live-agent listing. */
 export interface FleetListFilter {
@@ -15,6 +16,14 @@ export interface FleetInspectOptions {
 export interface FleetCallerOptions {
   callerSessionId?: string
 }
+
+/** Required caller identity for Provider-owned target confirmation. */
+export interface FleetRequiredCallerOptions {
+  callerSessionId: string
+}
+
+/** Filters and caller identity for issuing short-lived target references. */
+export interface FleetTargetListOptions extends FleetListFilter, FleetRequiredCallerOptions {}
 
 /** Options for canceling one root agent. */
 export interface FleetCancelOptions extends FleetCallerOptions {
@@ -54,6 +63,35 @@ export interface FleetInspectView extends FleetAgentView {
   tailMessages: FleetMessageSummary[]
 }
 
+/** Caller-bound short-lived reference to one exact live target. */
+export interface FleetTargetView extends FleetAgentView {
+  targetRef: string
+  targetRefExpiresAt: number
+}
+
+/** Single-attempt write authorization issued after target inspection. */
+export interface FleetSelectionView {
+  handle: string
+  expiresAt: number
+}
+
+/** Inspected target plus an optional write selection when current policy permits it. */
+export interface FleetTargetInspectView {
+  agent: FleetInspectView
+  selection?: FleetSelectionView
+}
+
+/** Options for inspecting one caller-bound target reference. */
+export interface FleetTargetInspectOptions extends FleetInspectOptions, FleetRequiredCallerOptions {}
+
+/** Required caller identity for one selected message write. */
+export interface FleetSelectedWriteOptions extends FleetRequiredCallerOptions {}
+
+/** Options for canceling through one confirmed target selection. */
+export interface FleetSelectedCancelOptions extends FleetRequiredCallerOptions {
+  keepInbox?: boolean
+}
+
 /** Fleet event names derived from the public Agent lifecycle stream. */
 export type FleetEventType = 'created' | 'status' | 'disposed'
 
@@ -71,17 +109,22 @@ export type FleetErrorCode =
   | 'fleet-delegated-write-deferred'
   | 'fleet-observe-only'
   | 'fleet-empty-text'
+  | 'fleet-caller-unavailable'
+  | 'fleet-target-reference-invalid'
+  | 'fleet-selection-invalid'
 
-/** Error with a stable machine-readable Fleet code. */
-export class FleetError extends Error {
-  override readonly name = 'FleetError'
+/** Error with stable machine-readable Fleet safety metadata. */
+export class FleetError extends HarnessError {
+  readonly actionTaken = false
+  readonly targetSubstitutionAllowed = false
+  readonly nextAction = 'relist-or-ask-user' as const
 
   /**
    * Create one Fleet operation failure.
    * @param code - stable error code.
    * @param message - optional explanatory detail.
    */
-  constructor(public readonly code: FleetErrorCode, message: string = code) {
-    super(message)
+  constructor(public override readonly code: FleetErrorCode, message: string = code) {
+    super(message, code)
   }
 }

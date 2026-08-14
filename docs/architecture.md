@@ -98,9 +98,15 @@ send(sessionId, text, opts) -> { messageId }
 steer(sessionId, text, opts) -> { messageId }
 cancel(sessionId, opts?) -> { accepted: true }
 subscribe(listener) -> disposer
+
+listTargets(options) -> FleetTargetView[]
+inspectTarget(targetRef, options) -> FleetTargetInspectView
+sendSelected(selectionHandle, text, options) -> { sessionId, messageId }
+steerSelected(selectionHandle, text, options) -> { sessionId, messageId }
+cancelSelected(selectionHandle, options) -> { sessionId, accepted: true }
 ```
 
-Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable` 拒绝上述操作，不再读取 Agent 注册表或调用 Agent。
+Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable` 拒绝上述操作，不再读取 Agent 注册表或调用 Agent，并清空所有 target reference 与 selection。
 
 `subscribe` 的 listener 是观察者。同步异常和返回 Promise 的拒绝会逐个记录，并且不阻断 Agent 生命周期或其他 Fleet listener。
 
@@ -118,9 +124,11 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 `session.header.origin` 和 `session.header.parentSession` 不参与 `kind`、`control`、`rootsOnly` 或写授权。`parentSession` 仍独立投影为 `parentSessionId`，所以 runtime root 可以带 `parentSessionId`，runtime delegated Agent 也可以不带该字段。
 
-## `sessionId` 寻址
+## 寻址与模型目标确认
 
-Fleet 所有路由操作以 `sessionId` 为主键。`fleet_list` 的 canonical output `{ agents, count }` 必须无损返回每个 `FleetAgentView.sessionId`，后续 inspect/send/steer/cancel 使用该值寻址。
+`sessionId` 仍是当前 runtime 内的 canonical routing identifier，direct Service API 继续使用它。模型工具不再跨调用提交 `sessionId`：`fleet_list` 为 owning caller 签发 `targetRef`，`fleet_inspect` 用它确认 exact target 并按当前写策略签发 `selectionHandle`，写工具只接受 selection。
+
+两类 handle 都只存在于 Provider 内部，并绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry。使用时再次核对 registry 的 exact-object identity；caller/target replacement、disposal、expiry、unload 或 mismatch 都失效。Selection 在 Agent 副作用前 single-attempt 消费。
 
 `sessionId` 在当前 DSH runtime 范围内稳定。未来任何 Session-list UI 必须展示它并提供复制操作；当前包没有该 UI。若未来支持多个 runtime，必须另行增加 runtime namespace 或等价寻址机制，不能假定当前 `sessionId` 已是全局 remote address。
 
@@ -144,7 +152,7 @@ Fleet 所有路由操作以 `sessionId` 为主键。`fleet_list` 的 canonical o
 | cold Session | 不出现在 `list()` |
 | 调用方自己的 Session | 拒绝控制 |
 
-Provider 为 exact Agent 对象缓存已观察到的 runtime classification。挂载时先注册生命周期监听器，再用一次 `list()` 与一次 `roots()` seed 已经 live 的 Agent。`created`、`status`、`list`、`inspect` 和写授权都会刷新同一对象缓存；`disposed` 在 registry 删除后只读取该 exact Agent 的缓存，不按 `sessionId` 查 replacement，也不重新查询 roots。因此 disposal event 保留旧 Agent 的 runtime kind，同 id replacement 的分类不会被旧 lifecycle 覆盖或删除。
+Provider 为 exact Agent 对象缓存已观察到的 runtime classification，并在 disposal 时撤销该对象作为 caller 或 target 的所有 confirmed-target state。挂载时先注册生命周期监听器，再用一次 `list()` 与一次 `roots()` seed 已经 live 的 Agent。`created`、`status`、`list`、`inspect` 和写授权都会刷新同一对象缓存；`disposed` 在 registry 删除后只读取该 exact Agent 的缓存，不按 `sessionId` 查 replacement，也不重新查询 roots。因此 disposal event 保留旧 Agent 的 runtime kind，同 id replacement 的分类不会被旧 lifecycle 覆盖或删除。
 
 ## 组合
 

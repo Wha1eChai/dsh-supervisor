@@ -1,6 +1,6 @@
 # L2 — Fleet 模型工具 Consumer
 
-**状态：已完成。** 本页列出的单元、ToolRuntime、真实 Loader、构建入口与 `pnpm pack` 门禁均已通过。
+**状态：已完成，模型参数契约已被 L2.2 替代。** 本页保留初始 L2 工具交付记录；当前 confirmed-target schema 以 [phase-l2.2.md](phase-l2.2.md) 和 [../reference/fleet.md](../reference/fleet.md) 为准。
 
 ## 目标
 

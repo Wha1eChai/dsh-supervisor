@@ -3,4 +3,5 @@ dist
 coverage
 .pack-output
 *.tgz
+.pi/
 *.tsbuildinfo

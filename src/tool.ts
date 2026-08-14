@@ -32,10 +32,10 @@ const FLEET_AGENT_PROPERTIES = {
   updatedAt: { type: 'number' },
 } as const
 
-const FLEET_AGENT_VALUE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: FLEET_AGENT_PROPERTIES,
+const FLEET_TARGET_PROPERTIES = {
+  ...FLEET_AGENT_PROPERTIES,
+  targetRef: { type: 'string', required: true },
+  targetRefExpiresAt: { type: 'number', required: true },
 } as const
 
 const FLEET_MESSAGE_VALUE_SCHEMA = {
@@ -48,7 +48,7 @@ const FLEET_MESSAGE_VALUE_SCHEMA = {
   },
 } as const
 
-const FLEET_INSPECT_VALUE_SCHEMA = {
+const FLEET_INSPECT_AGENT_VALUE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -61,13 +61,33 @@ const FLEET_INSPECT_VALUE_SCHEMA = {
   },
 } as const
 
+const FLEET_INSPECT_VALUE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    agent: { ...FLEET_INSPECT_AGENT_VALUE_SCHEMA, required: true },
+    selection: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        handle: { type: 'string', required: true },
+        expiresAt: { type: 'number', required: true },
+      },
+    },
+  },
+} as const
+
 const FLEET_LIST_VALUE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
     agents: {
       type: 'array',
-      items: FLEET_AGENT_VALUE_SCHEMA,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: FLEET_TARGET_PROPERTIES,
+      },
       required: true,
     },
     count: { type: 'integer', required: true },
@@ -92,16 +112,17 @@ const FLEET_CANCEL_VALUE_SCHEMA = {
   },
 } as const
 
-/** Parse a non-empty session id without throwing on replayed presentation data. */
-function parseSessionId(value: string): string | undefined {
-  const trimmed = value.trim()
-  return trimmed.length === 0 ? undefined : trimmed
+/** Parse one byte-exact opaque Fleet handle without normalizing replayed data. */
+function parseHandle(value: string): string | undefined {
+  return value.length === 0 || value !== value.trim() ? undefined : value
 }
 
-/** Require a non-empty session id while preserving its trimmed canonical form. */
-function sessionId(value: string): string {
-  const parsed = parseSessionId(value)
-  if (parsed === undefined) throw new TypeError('session_id must not be empty')
+/** Require one byte-exact opaque Fleet handle. */
+function handle(value: string, field: 'target_ref' | 'selection_handle'): string {
+  const parsed = parseHandle(value)
+  if (parsed === undefined) {
+    throw new TypeError(`${field} must be a non-empty exact handle without surrounding whitespace`)
+  }
   return parsed
 }
 
@@ -163,8 +184,10 @@ export function apply(ctx: Context, config: Config): void {
         }],
       },
       isConcurrencySafe: () => true,
-      async execute(args) {
-        const agents = ctx.fleet.list({
+      async execute(args, exec) {
+        if (exec.agent === undefined) throw new Error('fleet_list requires an owning agent session')
+        const agents = ctx.fleet.listTargets({
+          callerSessionId: exec.agent.session.id,
           ...(args.roots_only === undefined ? {} : { rootsOnly: args.roots_only }),
           ...(args.running_only === undefined ? {} : { runningOnly: args.running_only }),
         })
@@ -177,32 +200,36 @@ export function apply(ctx: Context, config: Config): void {
       name: 'fleet_inspect',
       description: 'Inspect one live Fleet session and return its bounded transcript summary.',
       parameters: {
-        session_id: { type: 'string', required: true, description: 'Target Fleet session id.' },
+        target_ref: { type: 'string', required: true, description: 'Caller-bound target reference from fleet_list.' },
         tail_messages: { type: 'number', description: 'Optional positive safe-integer transcript tail size.' },
       },
       output: {
         schema: FLEET_INSPECT_VALUE_SCHEMA,
         render: (_args, value) => [{
           type: 'text',
-          text: `Fleet session ${value.sessionId} is ${value.status} with ${value.control} control. Summary: ${json(value)}`,
+          text: `Fleet session ${value.agent.sessionId} is ${value.agent.status} with ${value.agent.control} control. ${value.selection === undefined ? 'No write selection was issued.' : `Write selection ${value.selection.handle} expires at ${value.selection.expiresAt}.`} Summary: ${json(value.agent)}`,
         }],
       },
       isConcurrencySafe: () => true,
-      async execute(args) {
-        const target = sessionId(args.session_id)
+      async execute(args, exec) {
+        if (exec.agent === undefined) throw new Error('fleet_inspect requires an owning agent session')
+        const targetRef = handle(args.target_ref, 'target_ref')
         const tail = tailMessages(args.tail_messages)
-        return ctx.fleet.inspect(target, tail === undefined ? {} : { tailMessages: tail })
+        return ctx.fleet.inspectTarget(targetRef, {
+          callerSessionId: exec.agent.session.id,
+          ...(tail === undefined ? {} : { tailMessages: tail }),
+        })
       },
       presentCall: args => {
-        const target = parseSessionId(args.session_id)
-        if (target === undefined) return undefined
+        const targetRef = parseHandle(args.target_ref)
+        if (targetRef === undefined) return undefined
         if (args.tail_messages !== undefined && !validTailMessages(args.tail_messages)) return undefined
         return present(
-          `Inspect Fleet session ${target}`,
+          `Inspect Fleet target ${targetRef}`,
           'search',
           args.tail_messages === undefined
-            ? { sessionId: target }
-            : { sessionId: target, tailMessages: args.tail_messages },
+            ? { targetRef }
+            : { targetRef, tailMessages: args.tail_messages },
         )
       },
     }))
@@ -212,30 +239,33 @@ export function apply(ctx: Context, config: Config): void {
         name: 'fleet_send',
         description: 'Queue a follow-up message for a live root Fleet session.',
         parameters: {
-          session_id: { type: 'string', required: true, description: 'Target Fleet session id.' },
+          selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           text: { type: 'string', required: true, description: 'Follow-up message text.' },
         },
         output: {
           schema: FLEET_WRITE_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Queued follow-up ${value.messageId} for Fleet session ${value.sessionId}.`,
+            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}.`,
           }],
         },
         async execute(args, exec) {
           exec.signal.throwIfAborted()
           if (exec.agent === undefined) throw new Error('fleet_send requires an owning agent session')
-          const target = sessionId(args.session_id)
+          const selectionHandle = handle(args.selection_handle, 'selection_handle')
           requireText(args.text)
-          const result = ctx.fleet.send(target, args.text, {
+          return ctx.fleet.sendSelected(selectionHandle, args.text, {
             callerSessionId: exec.agent.session.id,
           })
-          return { sessionId: target, messageId: result.messageId }
         },
         presentCall: args => {
-          const target = parseSessionId(args.session_id)
-          if (target === undefined || args.text.trim().length === 0) return undefined
-          return present(`Send message to Fleet session ${target}`, 'execute')
+          const selectionHandle = parseHandle(args.selection_handle)
+          if (selectionHandle === undefined || args.text.trim().length === 0) return undefined
+          return present(
+            'Send message to confirmed Fleet target',
+            'execute',
+            { selectionHandle },
+          )
         },
       }))
 
@@ -243,30 +273,33 @@ export function apply(ctx: Context, config: Config): void {
         name: 'fleet_steer',
         description: 'Submit a steering message to a live root Fleet session.',
         parameters: {
-          session_id: { type: 'string', required: true, description: 'Target Fleet session id.' },
+          selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           text: { type: 'string', required: true, description: 'Steering message text.' },
         },
         output: {
           schema: FLEET_WRITE_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Submitted steering message ${value.messageId} for Fleet session ${value.sessionId}.`,
+            text: `Submitted steering message ${value.messageId} for confirmed Fleet session ${value.sessionId}.`,
           }],
         },
         async execute(args, exec) {
           exec.signal.throwIfAborted()
           if (exec.agent === undefined) throw new Error('fleet_steer requires an owning agent session')
-          const target = sessionId(args.session_id)
+          const selectionHandle = handle(args.selection_handle, 'selection_handle')
           requireText(args.text)
-          const result = ctx.fleet.steer(target, args.text, {
+          return ctx.fleet.steerSelected(selectionHandle, args.text, {
             callerSessionId: exec.agent.session.id,
           })
-          return { sessionId: target, messageId: result.messageId }
         },
         presentCall: args => {
-          const target = parseSessionId(args.session_id)
-          if (target === undefined || args.text.trim().length === 0) return undefined
-          return present(`Steer Fleet session ${target}`, 'execute')
+          const selectionHandle = parseHandle(args.selection_handle)
+          if (selectionHandle === undefined || args.text.trim().length === 0) return undefined
+          return present(
+            'Steer confirmed Fleet target',
+            'execute',
+            { selectionHandle },
+          )
         },
       }))
     }
@@ -276,31 +309,34 @@ export function apply(ctx: Context, config: Config): void {
         name: 'fleet_cancel',
         description: 'Cancel active work in a live root Fleet session.',
         parameters: {
-          session_id: { type: 'string', required: true, description: 'Target Fleet session id.' },
+          selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           keep_inbox: { type: 'boolean', description: 'Preserve queued messages while canceling active work.' },
         },
         output: {
           schema: FLEET_CANCEL_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Cancellation accepted for Fleet session ${value.sessionId}.`,
+            text: `Cancellation accepted for confirmed Fleet session ${value.sessionId}.`,
           }],
         },
         async execute(args, exec) {
           exec.signal.throwIfAborted()
           if (exec.agent === undefined) throw new Error('fleet_cancel requires an owning agent session')
-          const target = sessionId(args.session_id)
-          const result = ctx.fleet.cancel(target, {
+          const selectionHandle = handle(args.selection_handle, 'selection_handle')
+          return ctx.fleet.cancelSelected(selectionHandle, {
             callerSessionId: exec.agent.session.id,
             ...(args.keep_inbox === undefined ? {} : { keepInbox: args.keep_inbox }),
           })
-          return { sessionId: target, accepted: result.accepted }
         },
         presentCall: args => {
-          const target = parseSessionId(args.session_id)
-          return target === undefined
+          const selectionHandle = parseHandle(args.selection_handle)
+          return selectionHandle === undefined
             ? undefined
-            : present(`Cancel Fleet session ${target}`, 'execute')
+            : present(
+              'Cancel confirmed Fleet target',
+              'execute',
+              { selectionHandle },
+            )
         },
       }))
     }

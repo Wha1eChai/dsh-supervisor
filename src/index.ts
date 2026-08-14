@@ -13,6 +13,9 @@ export interface Config {
   defaultTailMessages: number
   maxTailMessages: number
   maxMessageTextChars: number
+  targetRefTtlMs: number
+  selectionTtlMs: number
+  maxSelectionsPerCaller: number
 }
 
 const positiveInteger = (defaultValue: number) => Schema.number()
@@ -26,6 +29,9 @@ export const Config: Schema<Config> = Schema.object({
   defaultTailMessages: positiveInteger(8),
   maxTailMessages: positiveInteger(32),
   maxMessageTextChars: positiveInteger(2000),
+  targetRefTtlMs: positiveInteger(300_000),
+  selectionTtlMs: positiveInteger(60_000),
+  maxSelectionsPerCaller: positiveInteger(32),
 })
 
 export const name = 'dsh-supervisor'

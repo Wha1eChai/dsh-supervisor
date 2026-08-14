@@ -16,6 +16,12 @@ import type {
   FleetInspectOptions,
   FleetInspectView,
   FleetListFilter,
+  FleetSelectedCancelOptions,
+  FleetSelectedWriteOptions,
+  FleetTargetInspectOptions,
+  FleetTargetInspectView,
+  FleetTargetListOptions,
+  FleetTargetView,
 } from '../src/types.js'
 import * as toolPlugin from '../src/tool.js'
 
@@ -39,75 +45,112 @@ const DELEGATED: FleetAgentView = {
   blank: true,
   queueCount: 0,
 }
+const RUNNING_TARGET: FleetTargetView = {
+  ...RUNNING_ROOT,
+  targetRef: 'ft_target',
+  targetRefExpiresAt: 1_000,
+}
+const DELEGATED_TARGET: FleetTargetView = {
+  ...DELEGATED,
+  targetRef: 'ft_child',
+  targetRefExpiresAt: 1_000,
+}
 
 interface FleetCalls {
-  list: FleetListFilter[]
-  inspect: Array<[string, FleetInspectOptions]>
-  send: Array<[string, string, { callerSessionId?: string }]>
-  steer: Array<[string, string, { callerSessionId?: string }]>
-  cancel: Array<[string, { callerSessionId?: string; keepInbox?: boolean }]>
+  listTargets: FleetTargetListOptions[]
+  inspectTarget: Array<[string, FleetTargetInspectOptions]>
+  sendSelected: Array<[string, string, FleetSelectedWriteOptions]>
+  steerSelected: Array<[string, string, FleetSelectedWriteOptions]>
+  cancelSelected: Array<[string, FleetSelectedCancelOptions]>
 }
 
 class RecordingFleet extends FleetService {
-  readonly calls: FleetCalls = { list: [], inspect: [], send: [], steer: [], cancel: [] }
-  listValue: FleetAgentView[] = []
-  inspectValue: FleetInspectView = { ...RUNNING_ROOT, tailMessages: [] }
+  readonly calls: FleetCalls = {
+    listTargets: [], inspectTarget: [], sendSelected: [], steerSelected: [], cancelSelected: [],
+  }
+  listValue: FleetTargetView[] = []
+  inspectValue: FleetTargetInspectView = {
+    agent: { ...RUNNING_ROOT, tailMessages: [] },
+    selection: { handle: 'fs_target', expiresAt: 2_000 },
+  }
   badListOutput: 'extra' | 'type' | undefined
 
   constructor(ctx: Context) {
     super(ctx)
   }
 
-  list(filter: FleetListFilter = {}): FleetAgentView[] {
-    this.calls.list.push(filter)
+  list(_filter: FleetListFilter = {}): FleetAgentView[] {
+    return this.listValue
+  }
+
+  inspect(_sessionId: string, _options: FleetInspectOptions = {}): FleetInspectView {
+    return this.inspectValue.agent
+  }
+
+  send(_sessionId: string, _text: string): { messageId: string } {
+    return { messageId: 'direct-send-message' }
+  }
+
+  steer(_sessionId: string, _text: string): { messageId: string } {
+    return { messageId: 'direct-steer-message' }
+  }
+
+  cancel(): { accepted: true } {
+    return { accepted: true }
+  }
+
+  listTargets(options: FleetTargetListOptions): FleetTargetView[] {
+    this.calls.listTargets.push(options)
     if (this.badListOutput === 'extra') {
-      return [{ ...RUNNING_ROOT, unexpected: true } as FleetAgentView]
+      return [{ ...RUNNING_TARGET, unexpected: true } as FleetTargetView]
     }
     if (this.badListOutput === 'type') {
-      return [{ ...RUNNING_ROOT, queueCount: 'two' } as unknown as FleetAgentView]
+      return [{ ...RUNNING_TARGET, queueCount: 'two' } as unknown as FleetTargetView]
     }
     return this.listValue
   }
 
-  inspect(sessionId: string, options: FleetInspectOptions = {}): FleetInspectView {
-    this.calls.inspect.push([sessionId, options])
+  inspectTarget(targetRef: string, options: FleetTargetInspectOptions): FleetTargetInspectView {
+    this.calls.inspectTarget.push([targetRef, options])
     return this.inspectValue
   }
 
-  send(sessionId: string, text: string, options: { callerSessionId?: string } = {}): { messageId: string } {
-    this.calls.send.push([sessionId, text, options])
-    if (sessionId === options.callerSessionId) {
-      throw new FleetError('fleet-self-target', `fleet-self-target: session "${sessionId}" cannot control itself`)
-    }
-    if (sessionId === 'child') {
+  sendSelected(
+    selectionHandle: string,
+    text: string,
+    options: FleetSelectedWriteOptions,
+  ): { sessionId: string; messageId: string } {
+    this.calls.sendSelected.push([selectionHandle, text, options])
+    if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
-        'fleet-delegated-write-deferred',
-        `fleet-delegated-write-deferred: delegated writes are deferred for session "${sessionId}"`,
+        'fleet-selection-invalid',
+        'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { messageId: 'send-message' }
+    return { sessionId: 'target', messageId: 'send-message' }
   }
 
-  steer(sessionId: string, text: string, options: { callerSessionId?: string } = {}): { messageId: string } {
-    this.calls.steer.push([sessionId, text, options])
-    if (sessionId === options.callerSessionId) {
-      throw new FleetError('fleet-self-target', `fleet-self-target: session "${sessionId}" cannot control itself`)
-    }
-    if (sessionId === 'child') {
+  steerSelected(
+    selectionHandle: string,
+    text: string,
+    options: FleetSelectedWriteOptions,
+  ): { sessionId: string; messageId: string } {
+    this.calls.steerSelected.push([selectionHandle, text, options])
+    if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
-        'fleet-delegated-write-deferred',
-        `fleet-delegated-write-deferred: delegated writes are deferred for session "${sessionId}"`,
+        'fleet-selection-invalid',
+        'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { messageId: 'steer-message' }
+    return { sessionId: 'target', messageId: 'steer-message' }
   }
 
-  cancel(
-    sessionId: string,
-    options: { callerSessionId?: string; keepInbox?: boolean } = {},
-  ): { accepted: true } {
-    this.calls.cancel.push([sessionId, options])
-    return { accepted: true }
+  cancelSelected(
+    selectionHandle: string,
+    options: FleetSelectedCancelOptions,
+  ): { sessionId: string; accepted: true } {
+    this.calls.cancelSelected.push([selectionHandle, options])
+    return { sessionId: 'target', accepted: true }
   }
 
   subscribe(): () => void {
@@ -233,24 +276,27 @@ describe('Fleet tool namespace and configuration', () => {
       running_only: { type: 'boolean', description: 'Return only running sessions.' },
     }))
     expect(schemas.get('fleet_inspect')?.parameters).toEqual(parameterSchema({
-      session_id: { type: 'string', description: 'Target Fleet session id.' },
+      target_ref: { type: 'string', description: 'Caller-bound target reference from fleet_list.' },
       tail_messages: { type: 'number', description: 'Optional positive safe-integer transcript tail size.' },
-    }, ['session_id']))
+    }, ['target_ref']))
     expect(schemas.get('fleet_send')?.parameters).toEqual(parameterSchema({
-      session_id: { type: 'string', description: 'Target Fleet session id.' },
+      selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       text: { type: 'string', description: 'Follow-up message text.' },
-    }, ['session_id', 'text']))
+    }, ['selection_handle', 'text']))
     expect(schemas.get('fleet_steer')?.parameters).toEqual(parameterSchema({
-      session_id: { type: 'string', description: 'Target Fleet session id.' },
+      selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       text: { type: 'string', description: 'Steering message text.' },
-    }, ['session_id', 'text']))
+    }, ['selection_handle', 'text']))
     expect(schemas.get('fleet_cancel')?.parameters).toEqual(parameterSchema({
-      session_id: { type: 'string', description: 'Target Fleet session id.' },
+      selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       keep_inbox: { type: 'boolean', description: 'Preserve queued messages while canceling active work.' },
-    }, ['session_id']))
+    }, ['selection_handle']))
     for (const schema of schemas.values()) {
       expect(Object.keys(schema.parameters.properties ?? {})).not.toContain('callerSessionId')
       expect(Object.keys(schema.parameters.properties ?? {})).not.toContain('caller_session_id')
+      if (schema.name !== 'fleet_list') {
+        expect(Object.keys(schema.parameters.properties ?? {})).not.toContain('session_id')
+      }
     }
   })
 
@@ -275,17 +321,22 @@ describe('Fleet tool namespace and configuration', () => {
 describe('Fleet read tools', () => {
   it('4. maps list filters and returns canonical empty/non-empty values, render text, and card intent', async () => {
     const { ctx, fleet } = await harness()
+    const owner = fakeAgent('caller')
 
-    const empty = success(await call(ctx, 'fleet_list', { roots_only: true, running_only: false }))
-    expect(fleet.calls.list).toEqual([{ rootsOnly: true, runningOnly: false }])
+    const empty = success(await call(ctx, 'fleet_list', {
+      roots_only: true, running_only: false,
+    }, { agent: owner }))
+    expect(fleet.calls.listTargets).toEqual([{
+      rootsOnly: true, runningOnly: false, callerSessionId: 'caller',
+    }])
     expect(empty.value).toEqual({ agents: [], count: 0 })
     expect(text(empty)).toBe('No live Fleet sessions.')
 
-    fleet.listValue = [RUNNING_ROOT, DELEGATED]
-    const populated = success(await call(ctx, 'fleet_list', {}))
-    expect(fleet.calls.list.at(-1)).toEqual({})
-    expect(populated.value).toEqual({ agents: [RUNNING_ROOT, DELEGATED], count: 2 })
-    expect(text(populated)).toBe(`Found 2 live Fleet sessions: ${JSON.stringify([RUNNING_ROOT, DELEGATED])}`)
+    fleet.listValue = [RUNNING_TARGET, DELEGATED_TARGET]
+    const populated = success(await call(ctx, 'fleet_list', {}, { agent: owner }))
+    expect(fleet.calls.listTargets.at(-1)).toEqual({ callerSessionId: 'caller' })
+    expect(populated.value).toEqual({ agents: [RUNNING_TARGET, DELEGATED_TARGET], count: 2 })
+    expect(text(populated)).toBe(`Found 2 live Fleet sessions: ${JSON.stringify([RUNNING_TARGET, DELEGATED_TARGET])}`)
     expect(ctx.tools.get('fleet_list')?.presentCall?.({})).toEqual({
       card: 'generic', title: 'List Fleet sessions', kind: 'search',
     })
@@ -293,61 +344,75 @@ describe('Fleet read tools', () => {
 
   it('5. maps inspect arguments, validates tail size before Fleet, and renders complete output and card data', async () => {
     const { ctx, fleet } = await harness()
+    const owner = fakeAgent('caller')
     fleet.inspectValue = {
-      ...RUNNING_ROOT,
-      tailMessages: [
-        { messageId: 'user-1', role: 'user', text: 'question' },
-        { messageId: 'assistant-1', role: 'assistant', text: 'answer' },
-      ],
+      agent: {
+        ...RUNNING_ROOT,
+        tailMessages: [
+          { messageId: 'user-1', role: 'user', text: 'question' },
+          { messageId: 'assistant-1', role: 'assistant', text: 'answer' },
+        ],
+      },
+      selection: { handle: 'fs_target', expiresAt: 2_000 },
     }
 
-    const result = success(await call(ctx, 'fleet_inspect', { session_id: ' target ', tail_messages: 2 }))
-    expect(fleet.calls.inspect).toEqual([['target', { tailMessages: 2 }]])
+    const result = success(await call(ctx, 'fleet_inspect', {
+      target_ref: 'ft_target', tail_messages: 2,
+    }, { agent: owner }))
+    expect(fleet.calls.inspectTarget).toEqual([['ft_target', {
+      callerSessionId: 'caller', tailMessages: 2,
+    }]])
     expect(result.value).toEqual(fleet.inspectValue)
     expect(text(result)).toBe(
-      `Fleet session target is running with direct control. Summary: ${JSON.stringify(fleet.inspectValue)}`,
+      `Fleet session target is running with direct control. Write selection fs_target expires at 2000. Summary: ${JSON.stringify(fleet.inspectValue.agent)}`,
     )
-    expect(ctx.tools.get('fleet_inspect')?.presentCall?.({ session_id: ' target ', tail_messages: 2 })).toEqual({
+    expect(ctx.tools.get('fleet_inspect')?.presentCall?.({ target_ref: 'ft_target', tail_messages: 2 })).toEqual({
       card: 'generic',
-      title: 'Inspect Fleet session target',
+      title: 'Inspect Fleet target ft_target',
       kind: 'search',
-      rawInput: { sessionId: 'target', tailMessages: 2 },
+      rawInput: { targetRef: 'ft_target', tailMessages: 2 },
     })
-    expect(ctx.tools.get('fleet_inspect')?.presentCall?.({ session_id: 'target' })).toEqual({
+    expect(ctx.tools.get('fleet_inspect')?.presentCall?.({ target_ref: 'ft_target' })).toEqual({
       card: 'generic',
-      title: 'Inspect Fleet session target',
+      title: 'Inspect Fleet target ft_target',
       kind: 'search',
-      rawInput: { sessionId: 'target' },
+      rawInput: { targetRef: 'ft_target' },
     })
 
-    const withoutTail = success(await call(ctx, 'fleet_inspect', { session_id: 'target' }))
-    expect(fleet.calls.inspect.at(-1)).toEqual(['target', {}])
+    const withoutTail = success(await call(ctx, 'fleet_inspect', {
+      target_ref: 'ft_target',
+    }, { agent: owner }))
+    expect(fleet.calls.inspectTarget.at(-1)).toEqual(['ft_target', { callerSessionId: 'caller' }])
     expect(withoutTail.value).toEqual(fleet.inspectValue)
 
     for (const invalid of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-      const before = fleet.calls.inspect.length
-      const failed = await call(ctx, 'fleet_inspect', { session_id: 'target', tail_messages: invalid })
+      const before = fleet.calls.inspectTarget.length
+      const failed = await call(ctx, 'fleet_inspect', {
+        target_ref: 'ft_target', tail_messages: invalid,
+      }, { agent: owner })
       expect(failed.isError).toBe(true)
       expect(text(failed)).toContain('tail_messages must be a positive safe integer')
-      expect(fleet.calls.inspect).toHaveLength(before)
+      expect(fleet.calls.inspectTarget).toHaveLength(before)
     }
   })
 
   it.each([
     ['fleet_inspect', [
-      { session_id: '   ' },
-      { session_id: 'target', tail_messages: 0 },
-      { session_id: 'target', tail_messages: 1.5 },
+      { target_ref: '   ' },
+      { target_ref: ' ft_target' },
+      { target_ref: 'ft_target', tail_messages: 0 },
+      { target_ref: 'ft_target', tail_messages: 1.5 },
     ]],
     ['fleet_send', [
-      { session_id: '   ', text: 'message' },
-      { session_id: 'target', text: ' \n ' },
+      { selection_handle: '   ', text: 'message' },
+      { selection_handle: 'fs_target ', text: 'message' },
+      { selection_handle: 'fs_target', text: ' \n ' },
     ]],
     ['fleet_steer', [
-      { session_id: '\t', text: 'message' },
-      { session_id: 'target', text: '\t' },
+      { selection_handle: '\t', text: 'message' },
+      { selection_handle: 'fs_target', text: '\t' },
     ]],
-    ['fleet_cancel', [{ session_id: '\n' }]],
+    ['fleet_cancel', [{ selection_handle: '\n' }]],
   ] as const)('5b. makes %s fall back to a generic replay card for semantic invalidity', async (name, argsList) => {
     const { ctx } = await harness()
     for (const args of argsList) {
@@ -357,50 +422,63 @@ describe('Fleet read tools', () => {
 })
 
 describe('Fleet write tools', () => {
-  it('6. maps send/steer target, original text, and caller identity; Service policy failures stay isError', async () => {
+  it('6. maps selected send/steer, original text, and caller identity; invalid selections fail closed', async () => {
     const { ctx, fleet } = await harness()
     const owner = fakeAgent('caller')
 
-    const sent = success(await call(ctx, 'fleet_send', { session_id: ' target ', text: '  keep spacing  ' }, { agent: owner }))
-    expect(fleet.calls.send).toEqual([['target', '  keep spacing  ', { callerSessionId: 'caller' }]])
+    const sent = success(await call(ctx, 'fleet_send', {
+      selection_handle: 'fs_send', text: '  keep spacing  ',
+    }, { agent: owner }))
+    expect(fleet.calls.sendSelected).toEqual([['fs_send', '  keep spacing  ', { callerSessionId: 'caller' }]])
     expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message' })
-    expect(text(sent)).toBe('Queued follow-up send-message for Fleet session target.')
-    expect(ctx.tools.get('fleet_send')?.presentCall?.({ session_id: ' target ', text: 'secret body' })).toEqual({
-      card: 'generic', title: 'Send message to Fleet session target', kind: 'execute',
+    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target.')
+    expect(ctx.tools.get('fleet_send')?.presentCall?.({
+      selection_handle: 'fs_send', text: 'secret body',
+    })).toEqual({
+      card: 'generic', title: 'Send message to confirmed Fleet target', kind: 'execute',
+      rawInput: { selectionHandle: 'fs_send' },
     })
 
-    const steered = success(await call(ctx, 'fleet_steer', { session_id: 'target', text: 'turn left' }, { agent: owner }))
-    expect(fleet.calls.steer).toEqual([['target', 'turn left', { callerSessionId: 'caller' }]])
+    const steered = success(await call(ctx, 'fleet_steer', {
+      selection_handle: 'fs_steer', text: 'turn left',
+    }, { agent: owner }))
+    expect(fleet.calls.steerSelected).toEqual([['fs_steer', 'turn left', { callerSessionId: 'caller' }]])
     expect(steered.value).toEqual({ sessionId: 'target', messageId: 'steer-message' })
-    expect(text(steered)).toBe('Submitted steering message steer-message for Fleet session target.')
-    expect(ctx.tools.get('fleet_steer')?.presentCall?.({ session_id: 'target', text: 'secret body' })).toEqual({
-      card: 'generic', title: 'Steer Fleet session target', kind: 'execute',
+    expect(text(steered)).toBe('Submitted steering message steer-message for confirmed Fleet session target.')
+    expect(ctx.tools.get('fleet_steer')?.presentCall?.({
+      selection_handle: 'fs_steer', text: 'secret body',
+    })).toEqual({
+      card: 'generic', title: 'Steer confirmed Fleet target', kind: 'execute',
+      rawInput: { selectionHandle: 'fs_steer' },
     })
 
-    const selfSend = await call(ctx, 'fleet_send', { session_id: 'caller', text: 'x' }, { agent: owner })
-    expect(selfSend.isError).toBe(true)
-    expect(text(selfSend)).toContain('fleet-self-target')
-    expect(selfSend.isError && selfSend.error.message).toContain('fleet-self-target')
-
-    const selfSteer = await call(ctx, 'fleet_steer', { session_id: 'caller', text: 'x' }, { agent: owner })
-    expect(selfSteer.isError).toBe(true)
-    expect(text(selfSteer)).toContain('fleet-self-target')
-
-    const delegatedSend = await call(ctx, 'fleet_send', { session_id: 'child', text: 'x' }, { agent: owner })
-    expect(delegatedSend.isError).toBe(true)
-    expect(text(delegatedSend)).toContain('fleet-delegated-write-deferred')
-
-    const delegatedSteer = await call(ctx, 'fleet_steer', { session_id: 'child', text: 'x' }, { agent: owner })
-    expect(delegatedSteer.isError).toBe(true)
-    expect(text(delegatedSteer)).toContain('fleet-delegated-write-deferred')
+    const failed = await call(ctx, 'fleet_send', {
+      selection_handle: 'fs_invalid', text: 'x',
+    }, { agent: owner })
+    expect(failed.isError).toBe(true)
+    expect(text(failed)).toContain('No action was taken. Do not substitute another Fleet session.')
+    expect(failed.isError && failed.error.info).toEqual({
+      name: 'FleetError', code: 'fleet-selection-invalid',
+    })
   })
 
-  it('7. rejects agentless and invalid writes before every Fleet call', async () => {
+  it('7. rejects agentless and invalid confirmed-target calls before every Fleet call', async () => {
     const { ctx, fleet } = await harness()
+    for (const [name, args, message] of [
+      ['fleet_list', {}, 'fleet_list requires an owning agent session'],
+      ['fleet_inspect', { target_ref: 'ft_target' }, 'fleet_inspect requires an owning agent session'],
+    ] as const) {
+      const failed = await call(ctx, name, args)
+      expect(failed.isError).toBe(true)
+      expect(text(failed)).toContain(message)
+    }
+    expect(fleet.calls.listTargets).toEqual([])
+    expect(fleet.calls.inspectTarget).toEqual([])
+
     const attempts = [
-      ['fleet_send', { session_id: 'target', text: 'x' }, 'fleet_send requires an owning agent session'],
-      ['fleet_steer', { session_id: 'target', text: 'x' }, 'fleet_steer requires an owning agent session'],
-      ['fleet_cancel', { session_id: 'target' }, 'fleet_cancel requires an owning agent session'],
+      ['fleet_send', { selection_handle: 'fs_target', text: 'x' }, 'fleet_send requires an owning agent session'],
+      ['fleet_steer', { selection_handle: 'fs_target', text: 'x' }, 'fleet_steer requires an owning agent session'],
+      ['fleet_cancel', { selection_handle: 'fs_target' }, 'fleet_cancel requires an owning agent session'],
     ] as const
 
     for (const [name, args, message] of attempts) {
@@ -411,39 +489,43 @@ describe('Fleet write tools', () => {
 
     const owner = fakeAgent('caller')
     for (const [name, args, message] of [
-      ['fleet_send', { session_id: ' ', text: 'x' }, 'session_id must not be empty'],
-      ['fleet_send', { session_id: 'target', text: ' \n ' }, 'text must not be empty'],
-      ['fleet_steer', { session_id: '', text: 'x' }, 'session_id must not be empty'],
-      ['fleet_steer', { session_id: 'target', text: '\t' }, 'text must not be empty'],
-      ['fleet_cancel', { session_id: ' ' }, 'session_id must not be empty'],
+      ['fleet_send', { selection_handle: ' ', text: 'x' }, 'selection_handle must be a non-empty exact handle'],
+      ['fleet_send', { selection_handle: 'fs_target ', text: 'x' }, 'selection_handle must be a non-empty exact handle'],
+      ['fleet_send', { selection_handle: 'fs_target', text: ' \n ' }, 'text must not be empty'],
+      ['fleet_steer', { selection_handle: '', text: 'x' }, 'selection_handle must be a non-empty exact handle'],
+      ['fleet_steer', { selection_handle: 'fs_target', text: '\t' }, 'text must not be empty'],
+      ['fleet_cancel', { selection_handle: ' ' }, 'selection_handle must be a non-empty exact handle'],
     ] as const) {
       const failed = await call(ctx, name, args, { agent: owner })
       expect(failed.isError).toBe(true)
       expect(text(failed)).toContain(message)
     }
-    expect(fleet.calls.send).toEqual([])
-    expect(fleet.calls.steer).toEqual([])
-    expect(fleet.calls.cancel).toEqual([])
+    expect(fleet.calls.sendSelected).toEqual([])
+    expect(fleet.calls.steerSelected).toEqual([])
+    expect(fleet.calls.cancelSelected).toEqual([])
   })
 
   it('8. maps cancel caller and optional keepInbox without inventing a default', async () => {
     const { ctx, fleet } = await harness()
     const owner = fakeAgent('caller')
 
-    const omitted = success(await call(ctx, 'fleet_cancel', { session_id: ' target ' }, { agent: owner }))
+    const omitted = success(await call(ctx, 'fleet_cancel', {
+      selection_handle: 'fs_cancel',
+    }, { agent: owner }))
     const supplied = success(await call(ctx, 'fleet_cancel', {
-      session_id: 'target', keep_inbox: false,
+      selection_handle: 'fs_cancel_2', keep_inbox: false,
     }, { agent: owner }))
 
-    expect(fleet.calls.cancel).toEqual([
-      ['target', { callerSessionId: 'caller' }],
-      ['target', { callerSessionId: 'caller', keepInbox: false }],
+    expect(fleet.calls.cancelSelected).toEqual([
+      ['fs_cancel', { callerSessionId: 'caller' }],
+      ['fs_cancel_2', { callerSessionId: 'caller', keepInbox: false }],
     ])
     expect(omitted.value).toEqual({ sessionId: 'target', accepted: true })
     expect(supplied.value).toEqual({ sessionId: 'target', accepted: true })
-    expect(text(omitted)).toBe('Cancellation accepted for Fleet session target.')
-    expect(ctx.tools.get('fleet_cancel')?.presentCall?.({ session_id: ' target ' })).toEqual({
-      card: 'generic', title: 'Cancel Fleet session target', kind: 'execute',
+    expect(text(omitted)).toBe('Cancellation accepted for confirmed Fleet session target.')
+    expect(ctx.tools.get('fleet_cancel')?.presentCall?.({ selection_handle: 'fs_cancel' })).toEqual({
+      card: 'generic', title: 'Cancel confirmed Fleet target', kind: 'execute',
+      rawInput: { selectionHandle: 'fs_cancel' },
     })
   })
 })
@@ -455,13 +537,13 @@ describe('Fleet tool execution policy and schemas', () => {
       callId: CallId('mode-list'), name: 'fleet_list', arguments: {}, signal: new AbortController().signal,
     })).toEqual({ kind: 'parallel' })
     expect(ctx.tools.executionMode({
-      callId: CallId('mode-inspect'), name: 'fleet_inspect', arguments: { session_id: 'target' },
+      callId: CallId('mode-inspect'), name: 'fleet_inspect', arguments: { target_ref: 'ft_target' },
       signal: new AbortController().signal,
     })).toEqual({ kind: 'parallel' })
     for (const [name, args] of [
-      ['fleet_send', { session_id: 'target', text: 'message' }],
-      ['fleet_steer', { session_id: 'target', text: 'direction' }],
-      ['fleet_cancel', { session_id: 'target' }],
+      ['fleet_send', { selection_handle: 'fs_target', text: 'message' }],
+      ['fleet_steer', { selection_handle: 'fs_target', text: 'direction' }],
+      ['fleet_cancel', { selection_handle: 'fs_target' }],
     ] as const) {
       expect(ctx.tools.executionMode({
         callId: CallId(`mode-${name}`), name, arguments: args, signal: new AbortController().signal,
@@ -474,9 +556,9 @@ describe('Fleet tool execution policy and schemas', () => {
     const owner = fakeAgent('caller')
 
     for (const [name, args] of [
-      ['fleet_send', { session_id: 'target', text: 'message' }],
-      ['fleet_steer', { session_id: 'target', text: 'direction' }],
-      ['fleet_cancel', { session_id: 'target' }],
+      ['fleet_send', { selection_handle: 'fs_target', text: 'message' }],
+      ['fleet_steer', { selection_handle: 'fs_target', text: 'direction' }],
+      ['fleet_cancel', { selection_handle: 'fs_target' }],
     ] as const) {
       const controller = new AbortController()
       const throwIfAborted = vi.spyOn(controller.signal, 'throwIfAborted')
@@ -492,17 +574,17 @@ describe('Fleet tool execution policy and schemas', () => {
     controller.abort(new Error('already aborted'))
 
     for (const [name, args] of [
-      ['fleet_send', { session_id: 'target', text: 'x' }],
-      ['fleet_steer', { session_id: 'target', text: 'x' }],
-      ['fleet_cancel', { session_id: 'target' }],
+      ['fleet_send', { selection_handle: 'fs_target', text: 'x' }],
+      ['fleet_steer', { selection_handle: 'fs_target', text: 'x' }],
+      ['fleet_cancel', { selection_handle: 'fs_target' }],
     ] as const) {
       const failed = await call(ctx, name, args, { agent: owner, signal: controller.signal })
       expect(failed.isError).toBe(true)
       expect(failed.isError && failed.error.info?.code).toBe('ABORTED_BEFORE_DISPATCH')
     }
-    expect(fleet.calls.send).toEqual([])
-    expect(fleet.calls.steer).toEqual([])
-    expect(fleet.calls.cancel).toEqual([])
+    expect(fleet.calls.sendSelected).toEqual([])
+    expect(fleet.calls.steerSelected).toEqual([])
+    expect(fleet.calls.cancelSelected).toEqual([])
   })
 
   it('10c. reflects rc.6 late cancellation after synchronous Fleet acceptance', async () => {
@@ -516,10 +598,10 @@ describe('Fleet tool execution policy and schemas', () => {
     })
 
     const result = await call(ctx, 'fleet_send', {
-      session_id: 'target', text: 'message',
+      selection_handle: 'fs_target', text: 'message',
     }, { agent: owner, signal: controller.signal })
 
-    expect(fleet.calls.send).toEqual([['target', 'message', { callerSessionId: 'caller' }]])
+    expect(fleet.calls.sendSelected).toEqual([['fs_target', 'message', { callerSessionId: 'caller' }]])
     expect(result).toMatchObject({
       content: [{ type: 'text', text: 'Error: tool call aborted' }],
       isError: true,
@@ -530,18 +612,20 @@ describe('Fleet tool execution policy and schemas', () => {
   it('11. preserves every canonical value through JSON and rejects invalid provider output', async () => {
     const { ctx, fleet } = await harness()
     const owner = fakeAgent('caller')
-    fleet.listValue = [RUNNING_ROOT, DELEGATED]
+    fleet.listValue = [RUNNING_TARGET, DELEGATED_TARGET]
     fleet.inspectValue = {
-      ...DELEGATED,
-      tailMessages: [{ messageId: 'message', role: 'assistant', text: 'done' }],
+      agent: {
+        ...DELEGATED,
+        tailMessages: [{ messageId: 'message', role: 'assistant', text: 'done' }],
+      },
     }
 
     const successes = [
-      await call(ctx, 'fleet_list', {}),
-      await call(ctx, 'fleet_inspect', { session_id: 'child' }),
-      await call(ctx, 'fleet_send', { session_id: 'target', text: 'x' }, { agent: owner }),
-      await call(ctx, 'fleet_steer', { session_id: 'target', text: 'x' }, { agent: owner }),
-      await call(ctx, 'fleet_cancel', { session_id: 'target' }, { agent: owner }),
+      await call(ctx, 'fleet_list', {}, { agent: owner }),
+      await call(ctx, 'fleet_inspect', { target_ref: 'ft_child' }, { agent: owner }),
+      await call(ctx, 'fleet_send', { selection_handle: 'fs_target', text: 'x' }, { agent: owner }),
+      await call(ctx, 'fleet_steer', { selection_handle: 'fs_target', text: 'x' }, { agent: owner }),
+      await call(ctx, 'fleet_cancel', { selection_handle: 'fs_target' }, { agent: owner }),
     ].map(success)
     for (const result of successes) {
       expect(JSON.parse(JSON.stringify(result.value))).toEqual(result.value)
@@ -554,13 +638,13 @@ describe('Fleet tool execution policy and schemas', () => {
     }
 
     fleet.badListOutput = 'extra'
-    const extra = await call(ctx, 'fleet_list', {})
+    const extra = await call(ctx, 'fleet_list', {}, { agent: owner })
     expect(extra.isError).toBe(true)
     expect(extra.isError && extra.error.info?.name).toBe('ToolOutputError')
     expect(text(extra)).toContain('unexpected')
 
     fleet.badListOutput = 'type'
-    const wrongType = await call(ctx, 'fleet_list', {})
+    const wrongType = await call(ctx, 'fleet_list', {}, { agent: owner })
     expect(wrongType.isError).toBe(true)
     expect(wrongType.isError && wrongType.error.info?.name).toBe('ToolOutputError')
     expect(text(wrongType)).toContain('queueCount')
@@ -574,6 +658,6 @@ describe('Fleet tool execution policy and schemas', () => {
     expect(source).not.toContain('ctx.sessions')
     expect(source).not.toContain('ctx.subagents')
     expect(source).not.toContain('callerSessionId: args')
-    expect(source.match(/callerSessionId: exec\.agent\.session\.id/g)).toHaveLength(3)
+    expect(source.match(/callerSessionId: exec\.agent\.session\.id/g)).toHaveLength(5)
   })
 })

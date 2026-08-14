@@ -10,6 +10,9 @@ const TEST_CONFIG: Config = {
   defaultTailMessages: 2,
   maxTailMessages: 3,
   maxMessageTextChars: 5,
+  targetRefTtlMs: 1_000,
+  selectionTtlMs: 500,
+  maxSelectionsPerCaller: 2,
 }
 
 interface StubAgent extends Agent {
@@ -22,6 +25,7 @@ interface StubAgent extends Agent {
 const disposals: Array<() => Promise<void>> = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   while (disposals.length > 0) await disposals.pop()?.()
 })
 
@@ -506,6 +510,253 @@ describe('Fleet L1 behavior', () => {
     expect(seen.at(-1)).toBe('disposed:root:durable-parent')
   })
 
+  it('17. confirms one exact target through caller-bound references and a single-use selection', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller-session')
+    const target = createStubAgent(ctx, 'target-session-with-an-opaque-id')
+    register(ctx, caller, target)
+
+    const listed = ctx.fleet.listTargets({ callerSessionId: 'caller-session' })
+    const targetEntry = listed.find(entry => entry.sessionId === target.id)
+    if (targetEntry === undefined) throw new Error('missing target reference')
+    expect(targetEntry.targetRef).toMatch(/^ft_[A-Za-z0-9_-]+$/)
+    expect(targetEntry.targetRef).not.toContain(target.id)
+    expect(targetEntry.targetRefExpiresAt).toBeGreaterThan(Date.now())
+
+    const inspected = ctx.fleet.inspectTarget(targetEntry.targetRef, {
+      callerSessionId: 'caller-session',
+      tailMessages: 1,
+    })
+    expect(inspected.agent).toEqual(expect.objectContaining({ sessionId: target.id, kind: 'root' }))
+    expect(inspected.selection).toEqual({
+      handle: expect.stringMatching(/^fs_[A-Za-z0-9_-]+$/),
+      expiresAt: expect.any(Number),
+    })
+    if (inspected.selection === undefined) throw new Error('missing write selection')
+
+    const sent = ctx.fleet.sendSelected(inspected.selection.handle, 'follow up', {
+      callerSessionId: 'caller-session',
+    })
+    expect(sent).toEqual({ sessionId: target.id, messageId: expect.any(String) })
+    expect(target.followup).toHaveBeenCalledOnce()
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(inspected.selection!.handle, 'duplicate', { callerSessionId: 'caller-session' }),
+      'fleet-selection-invalid',
+    )
+    expect(target.followup).toHaveBeenCalledOnce()
+
+    const issueSelection = () => {
+      const current = ctx.fleet.inspectTarget(targetEntry.targetRef, {
+        callerSessionId: 'caller-session',
+      }).selection
+      if (current === undefined) throw new Error('missing renewed write selection')
+      return current.handle
+    }
+    const steered = ctx.fleet.steerSelected(issueSelection(), 'change direction', {
+      callerSessionId: 'caller-session',
+    })
+    expect(steered).toEqual({ sessionId: target.id, messageId: expect.any(String) })
+    expect(target.steer).toHaveBeenCalledOnce()
+
+    const canceled = ctx.fleet.cancelSelected(issueSelection(), {
+      callerSessionId: 'caller-session',
+      keepInbox: true,
+    })
+    expect(canceled).toEqual({ sessionId: target.id, accepted: true })
+    expect(target.cancel).toHaveBeenCalledWith(
+      { kind: 'hook', reason: 'fleet-cancel' },
+      { keepInbox: true },
+    )
+  })
+
+  it('18. allows self and delegated inspection without issuing a write selection', async () => {
+    const { ctx } = await createHarness(TEST_CONFIG, true)
+    const caller = createStubAgent(ctx, 'caller')
+    const child = createStubAgent(ctx, 'child')
+    register(ctx, caller)
+    enterChild(ctx, child, caller)
+
+    const listed = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+    const selfRef = listed.find(entry => entry.sessionId === 'caller')?.targetRef
+    const childRef = listed.find(entry => entry.sessionId === 'child')?.targetRef
+    if (selfRef === undefined || childRef === undefined) throw new Error('missing target reference')
+
+    expect(ctx.fleet.inspectTarget(selfRef, { callerSessionId: 'caller' })).toEqual({
+      agent: expect.objectContaining({ sessionId: 'caller', kind: 'root' }),
+    })
+    expect(ctx.fleet.inspectTarget(childRef, { callerSessionId: 'caller' })).toEqual({
+      agent: expect.objectContaining({ sessionId: 'child', kind: 'delegated', control: 'subagent' }),
+    })
+  })
+
+  it('19. invalidates submitted references on caller mismatch and exposes fail-closed metadata', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller')
+    const other = createStubAgent(ctx, 'other')
+    const target = createStubAgent(ctx, 'target')
+    register(ctx, caller, other, target)
+
+    const targetRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'target')?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    let referenceError: FleetError | undefined
+    try {
+      ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'other' })
+    } catch (error) {
+      referenceError = error as FleetError
+    }
+    expect(referenceError).toMatchObject({
+      code: 'fleet-target-reference-invalid',
+      actionTaken: false,
+      targetSubstitutionAllowed: false,
+      nextAction: 'relist-or-ask-user',
+    })
+    expectFleetCode(
+      () => ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }),
+      'fleet-target-reference-invalid',
+    )
+
+    const freshRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'target')?.targetRef
+    if (freshRef === undefined) throw new Error('missing fresh target reference')
+    const selection = ctx.fleet.inspectTarget(freshRef, { callerSessionId: 'caller' }).selection
+    if (selection === undefined) throw new Error('missing selection')
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(selection.handle, 'wrong caller', { callerSessionId: 'other' }),
+      'fleet-selection-invalid',
+    )
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(selection.handle, 'original caller', { callerSessionId: 'caller' }),
+      'fleet-selection-invalid',
+    )
+    expect(target.followup).not.toHaveBeenCalled()
+  })
+
+  it('20. invalidates references and selections across exact caller or target replacement', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller')
+    const oldTarget = createStubAgent(ctx, 'same-target')
+    const [detachCaller, detachTarget] = register(ctx, caller, oldTarget)
+
+    const firstRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'same-target')?.targetRef
+    if (firstRef === undefined) throw new Error('missing target reference')
+    const firstSelection = ctx.fleet.inspectTarget(firstRef, { callerSessionId: 'caller' }).selection
+    if (firstSelection === undefined) throw new Error('missing selection')
+
+    detachTarget?.()
+    const newTarget = createStubAgent(ctx, 'same-target')
+    register(ctx, newTarget)
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(firstSelection.handle, 'stale target', { callerSessionId: 'caller' }),
+      'fleet-selection-invalid',
+    )
+    expect(newTarget.followup).not.toHaveBeenCalled()
+
+    const secondRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'same-target')?.targetRef
+    if (secondRef === undefined) throw new Error('missing replacement target reference')
+    const secondSelection = ctx.fleet.inspectTarget(secondRef, { callerSessionId: 'caller' }).selection
+    if (secondSelection === undefined) throw new Error('missing replacement selection')
+
+    detachCaller?.()
+    const newCaller = createStubAgent(ctx, 'caller')
+    register(ctx, newCaller)
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(secondSelection.handle, 'stale caller', { callerSessionId: 'caller' }),
+      'fleet-selection-invalid',
+    )
+    expect(newTarget.followup).not.toHaveBeenCalled()
+  })
+
+  it('21. expires target references and selections at the configured boundary', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller')
+    const target = createStubAgent(ctx, 'target')
+    register(ctx, caller, target)
+
+    const targetRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'target')?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    vi.setSystemTime(11_000)
+    expectFleetCode(
+      () => ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }),
+      'fleet-target-reference-invalid',
+    )
+
+    vi.setSystemTime(20_000)
+    const freshRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'target')?.targetRef
+    if (freshRef === undefined) throw new Error('missing fresh target reference')
+    const selection = ctx.fleet.inspectTarget(freshRef, { callerSessionId: 'caller' }).selection
+    if (selection === undefined) throw new Error('missing selection')
+    vi.setSystemTime(20_500)
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(selection.handle, 'expired', { callerSessionId: 'caller' }),
+      'fleet-selection-invalid',
+    )
+    expect(target.followup).not.toHaveBeenCalled()
+  })
+
+  it('22. preserves a selection after input rejection but consumes it before an uncertain Agent call', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller')
+    const target = createStubAgent(ctx, 'target')
+    register(ctx, caller, target)
+
+    const issueSelection = () => {
+      const targetRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+        .find(entry => entry.sessionId === 'target')?.targetRef
+      if (targetRef === undefined) throw new Error('missing target reference')
+      const selection = ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }).selection
+      if (selection === undefined) throw new Error('missing selection')
+      return selection.handle
+    }
+
+    const reusable = issueSelection()
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(reusable, '  ', { callerSessionId: 'caller' }),
+      'fleet-empty-text',
+    )
+    ctx.fleet.sendSelected(reusable, 'valid', { callerSessionId: 'caller' })
+    expect(target.followup).toHaveBeenCalledOnce()
+
+    const uncertain = issueSelection()
+    target.followup.mockImplementationOnce(() => { throw new Error('Agent followup failed after entry') })
+    expect(() => ctx.fleet.sendSelected(uncertain, 'may have entered', {
+      callerSessionId: 'caller',
+    })).toThrow('Agent followup failed after entry')
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(uncertain, 'must not retry', { callerSessionId: 'caller' }),
+      'fleet-selection-invalid',
+    )
+  })
+
+  it('23. bounds live selections per caller by evicting the oldest handle', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller')
+    const target = createStubAgent(ctx, 'target')
+    register(ctx, caller, target)
+    const targetRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(entry => entry.sessionId === 'target')?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+
+    const first = ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }).selection?.handle
+    const second = ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }).selection?.handle
+    const third = ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }).selection?.handle
+    if (first === undefined || second === undefined || third === undefined) throw new Error('missing selection')
+
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(first, 'evicted', { callerSessionId: 'caller' }),
+      'fleet-selection-invalid',
+    )
+    ctx.fleet.sendSelected(second, 'second', { callerSessionId: 'caller' })
+    ctx.fleet.sendSelected(third, 'third', { callerSessionId: 'caller' })
+    expect(target.followup).toHaveBeenCalledTimes(2)
+  })
+
   it('rejects every retained service operation after provider unload without registry or Agent access', async () => {
     const { ctx, fleetFiber } = await createHarness()
     const root = createStubAgent(ctx, 'root')
@@ -523,6 +774,11 @@ describe('Fleet L1 behavior', () => {
     expectFleetCode(() => fleet.steer('root', 'change direction'), 'fleet-unavailable')
     expectFleetCode(() => fleet.cancel('root'), 'fleet-unavailable')
     expectFleetCode(() => fleet.subscribe(() => {}), 'fleet-unavailable')
+    expectFleetCode(() => fleet.listTargets({ callerSessionId: 'root' }), 'fleet-unavailable')
+    expectFleetCode(() => fleet.inspectTarget('ft_stale', { callerSessionId: 'root' }), 'fleet-unavailable')
+    expectFleetCode(() => fleet.sendSelected('fs_stale', 'x', { callerSessionId: 'root' }), 'fleet-unavailable')
+    expectFleetCode(() => fleet.steerSelected('fs_stale', 'x', { callerSessionId: 'root' }), 'fleet-unavailable')
+    expectFleetCode(() => fleet.cancelSelected('fs_stale', { callerSessionId: 'root' }), 'fleet-unavailable')
     expect(listAgents).not.toHaveBeenCalled()
     expect(rootAgents).not.toHaveBeenCalled()
     expect(getAgent).not.toHaveBeenCalled()
@@ -605,6 +861,9 @@ describe('Fleet L1 behavior', () => {
       defaultTailMessages: 4,
       maxTailMessages: 3,
       maxMessageTextChars: 10,
+      targetRefTtlMs: 1_000,
+      selectionTtlMs: 500,
+      maxSelectionsPerCaller: 2,
     })
     await expect(fiber).rejects.toThrow('defaultTailMessages must be less than or equal to maxTailMessages')
     await fiber.dispose()

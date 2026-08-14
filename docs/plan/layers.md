@@ -1,12 +1,13 @@
 # 分层全景
 
-当前已交付范围是 L0–L2.1，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
+当前已交付范围是 L0–L2.2，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
 
 ```text
 L0  仓库骨架 + 可安装 bundle                       已交付
 L1  ctx.fleet Definition + 当前进程内 Provider + 单测 已交付
 L2  fleet_* 模型工具（Consumer）                    已交付
 L2.1 AgentRegistry runtime ownership 正确性修复      已交付
+L2.2 caller-bound confirmed target writes            已交付
 L2b delegated Session 写路径                         未来
 L3  supervisor Agent preset（条件组合可选能力）       未来
 L4  独立 profile / first-class surface / transport   未来
@@ -32,7 +33,7 @@ L6  daemon / 多 runtime Provider / 权限深化           未来
 
 `@wha1echai/dsh-supervisor/tool` 只注入 `fleet` 和 `tools`，按 `read-only` / `message` / `full` 安全模式注册 `fleet_list` / `fleet_inspect` / `fleet_send` / `fleet_steer` / `fleet_cancel`。模型不能提供 caller id；写工具从 owning Agent 派生，并继续由 Fleet 拒绝 self/delegated 写入。
 
-Consumer 挂载控制模型可见性。已经 live 的 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前工具集合；不注入聊天消息，也不添加只用于能力广告的常驻 prompt prose。`fleet_list` 返回 `{ agents, count }`，每个 Agent 视图中的 `sessionId` 是后续 Fleet 操作的当前 runtime 路由标识。
+Consumer 挂载控制模型可见性。已经 live 的 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前工具集合；不注入聊天消息，也不添加只用于能力广告的常驻 prompt prose。
 
 详见 [phase-l2.md](phase-l2.md)。Delegated followup / interrupt 需要精确 parent authority，单列后续 L2b，不从 Consumer 绕过 Service Definition。
 
@@ -43,6 +44,14 @@ Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 权威分类 `root` /
 Provider 使用 exact Agent 对象的 `WeakMap` 缓存，挂载时 seed 已经 live 的 Agent，并在 registry 删除后的 disposal event 中保留旧分类。同 `sessionId` replacement 不会被 stale disposal 误分类或清理。
 
 详见 [phase-l2.1.md](phase-l2.1.md)。
+
+## L2.2 — Confirmed target writes（已交付）
+
+可信程序化 Consumer 继续使用 direct `sessionId` Service API；模型工具改为 `fleet_list -> target_ref -> fleet_inspect -> selection_handle -> write`。Handle 同时绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry，selection 在 Agent 副作用前 single-attempt 消费。
+
+无效、过期、caller mismatch、disposal、同 ID replacement、unload 或重复使用都 fail closed，不会回退到其他 Session。Self/delegated target 可 inspect，但不签发 selection。
+
+详见 [phase-l2.2.md](phase-l2.2.md)。
 
 ## L3 — Preset（未来）
 
