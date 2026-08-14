@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentCarrier, Inbox, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -200,13 +201,14 @@ function appendTurn(session: Session, userText: string, assistantText: string): 
 describe('Fleet L1 behavior', () => {
   it('1. lists two live root agents with complete JSON-safe fields', async () => {
     const { ctx } = await createHarness()
-    const first = createStubAgent(ctx, 'root-a', { cwd: 'D:/work/a', queue: { nextTurn: 1, nextStep: 2 } })
+    const cwd = resolve('work/a')
+    const first = createStubAgent(ctx, 'root-a', { cwd, queue: { nextTurn: 1, nextStep: 2 } })
     const second = createStubAgent(ctx, 'root-b')
     register(ctx, first, second)
 
     expect(ctx.fleet.list()).toEqual([
       {
-        sessionId: 'root-a', status: 'idle', kind: 'root', control: 'direct', cwd: 'D:/work/a',
+        sessionId: 'root-a', status: 'idle', kind: 'root', control: 'direct', cwd,
         blank: true, queueCount: 3, updatedAt: expect.any(Number),
       },
       {
