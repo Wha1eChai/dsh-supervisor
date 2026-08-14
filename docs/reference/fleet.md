@@ -138,7 +138,7 @@ Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source
 }
 ```
 
-`senderSessionId` 只能来自 Provider 保存的 exact caller Agent；`deliveryId` 由 Provider 生成，用于 receipt 和 inspect correlation。工具输入、标题、target reference、selection handle 和正文都不能覆盖这些字段。正文以 encoded sender header 加原始 body 的独立 text blocks 发送；正文是不可信模型输入，不参与授权或 correlation 解析。Direct caller 的字符串 `callerSessionId` 不会伪造 relay source。
+`senderSessionId` 只能来自 Provider 保存的 exact caller Agent；`deliveryId` 由 Provider 生成，用于 receipt 和 inspect correlation。工具输入、标题、target reference、selection handle 和正文都不能覆盖这些字段。正文以同时包含 encoded sender 和 encoded delivery id 的 header，加固定 marker 后从下一个独立 text block 开始的原始 body 发送；body 保持不可信模型输入，不参与授权或 correlation 解析。Direct caller 的字符串 `callerSessionId` 不会伪造 relay source。
 
 Direct/selected `cancel` 的原因固定为：
 
@@ -204,7 +204,7 @@ Runtime delegated Agent 保持只读：有 `ctx.subagents` 时 direct write 返�
 | `fleet-target-reference-invalid` | target reference unknown、expired、mismatched 或 stale |
 | `fleet-selection-invalid` | selection unknown、expired、mismatched、stale 或已消费 |
 
-Selected write receipt 的 `messageId` 是消息 correlation，`deliveryId` 是 Provider 生成的 relay observability identity。Receipt 只代表 Agent inbox 方法同步接受，不表示目标已 claim、完成 turn 或产生 reply；selected steer 不拥有独立 reply 语义。
+Selected write receipt 的 `messageId` 是消息 correlation，`deliveryId` 是 Provider 生成的 relay observability identity。Receipt 只代表 Agent inbox 方法同步接受，不表示目标已 claim、完成 turn 或产生 reply；selected steer 不拥有独立 reply 语义。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
 
 无效 reference/selection 的错误明确说明：
 

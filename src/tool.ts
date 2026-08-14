@@ -253,7 +253,7 @@ export function apply(ctx: Context, config: Config): void {
     if (config.controlMode !== 'read-only') {
       yield ctx.tools.register(defineTool({
         name: 'fleet_send',
-        description: 'Queue a follow-up message for a live root Fleet session.',
+        description: 'Wake a live root Fleet session with a follow-up; may consume model and tool resources. Receipt means synchronous inbox acceptance only—not claim, turn, or reply completion.',
         parameters: {
           selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           text: { type: 'string', required: true, description: 'Follow-up message text.' },
@@ -288,7 +288,7 @@ export function apply(ctx: Context, config: Config): void {
 
       yield ctx.tools.register(defineTool({
         name: 'fleet_steer',
-        description: 'Submit a steering message to a live root Fleet session.',
+        description: 'Change a live root Fleet session\'s direction; may consume model and tool resources. Receipt means synchronous inbox acceptance only—not claim, turn, or reply completion.',
         parameters: {
           selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           text: { type: 'string', required: true, description: 'Steering message text.' },

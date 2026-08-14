@@ -41,7 +41,7 @@ See [docs/architecture.md](docs/architecture.md) for the complete constraints.
 - `cancel()` — cancel a live root Agent with a stable Fleet cause;
 - `subscribe()` — observe projected create/status/dispose events.
 
-Confirmed-target model `fleet_send` / `fleet_steer` use a versioned `fleet-relay` source. The exact caller Agent supplies `senderSessionId`; the Provider supplies an opaque `deliveryId`. Relay body text is preserved as untrusted model input and cannot override structured attribution.
+Confirmed-target model `fleet_send` / `fleet_steer` use a versioned `fleet-relay` source. The exact caller Agent supplies `senderSessionId`; the Provider supplies an opaque `deliveryId`. The model-visible header encodes both values; the body starts after a fixed marker in a separate text block, is preserved as untrusted model input, and cannot override structured attribution.
 
 The separate `@wha1echai/dsh-supervisor/tool` entry registers:
 

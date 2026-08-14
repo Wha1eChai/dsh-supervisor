@@ -41,7 +41,7 @@ Subagent 和 workflow 工具属于可选 profile 组合。只有对应公开 sea
 - `cancel()` — 使用稳定 Fleet 原因取消 live root Agent；
 - `subscribe()` — 观察投影后的 created/status/disposed 事件。
 
-confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-relay` source。exact caller Agent 提供 `senderSessionId`，Provider 提供 opaque `deliveryId`。Relay 正文按原文保留为不可信模型输入，不能覆盖结构化归因。
+confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-relay` source。exact caller Agent 提供 `senderSessionId`，Provider 提供 opaque `deliveryId`。模型可见 header 同时编码两者；固定 marker 之后的正文从独立 text block 开始，按原文保留为不可信模型输入，不能覆盖结构化归因。
 
 独立入口 `@wha1echai/dsh-supervisor/tool` 注册：
 

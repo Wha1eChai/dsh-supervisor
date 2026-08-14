@@ -31,12 +31,12 @@ Direct `send` / `steer` 继续使用：
 Provider 从同一组 canonical facts 生成模型可见正文：
 
 ```text
-Fleet relay from session <encoded sender>:
+Fleet relay from session <encoded sender> (delivery <encoded delivery id>):
 [untrusted body begins]
 <original body>
 ```
 
-sender 使用 URI 编码，正文作为独立 text block 原样保留，不 trim、不折叠空白、不从正文反解析身份或 correlation。正文中的 forged sender、header、delimiter、target 或 handle 都只是 untrusted model input。Envelope 只有展示作用；结构化 source 和 exact Agent state 才是权威事实。
+sender 和 delivery id 使用 URI 编码；固定 marker 之后的 body 从下一个独立 text block 开始，原样保留，不 trim、不折叠空白、不从正文反解析身份或 correlation。正文中的 forged sender、header、delimiter、target 或 handle 都只是 untrusted model input。Envelope 只有展示作用；结构化 source 和 exact Agent state 才是权威事实。
 
 ## Delivery receipt and inspect
 
@@ -56,7 +56,7 @@ Inspect 只在消息 source 精确匹配 `fleet-relay` 时投影窄 `relay` 字�
 
 `deliveryId` 是观测和 correlation identity，不是授权凭据；receipt 不代表 claim、turn completion 或 assistant reply，selected steer 也不获得独立 reply 语义。
 
-完整 relay 已包含在现有 `user/message` durability 中，不新增 Fleet Session event，也不修改 Session format version。Provider 不持久化 target reference 或 selection handle；它们只存在于 transient Provider state 和既有工具调用参数记录中。
+完整 relay 已包含在现有 `user/message` durability 中，不新增 Fleet Session event，也不修改 Session format version。`target_ref` / `selection_handle` 不出现在 relay source、relay body、delivery receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍按既有规则保留工具 arguments。
 
 ## Confirmed write invariants
 

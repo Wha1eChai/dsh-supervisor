@@ -65,7 +65,7 @@ Inspect 将符合条件的 user/assistant 消息先过滤，再分别报告 `omi
 
 ## L2.4 — Attributed Fleet relay（已交付）
 
-Confirmed-target selected `send` / `steer` 使用 Provider 生成的 versioned `fleet-relay` source，exact caller Agent 提供 sender，Provider 生成 opaque delivery correlation；direct API 继续使用 plugin attribution。完整正文和 inspect projection 规则见 [phase-l2.4.md](phase-l2.4.md)。
+Confirmed-target selected `send` / `steer` 使用 Provider 生成的 versioned `fleet-relay` source，exact caller Agent 提供 sender，Provider 生成 opaque delivery correlation；model-visible header 同时编码 sender 和 delivery id，固定 marker 之后的 body 从独立 text block 开始并保持 untrusted；direct API 继续使用 plugin attribution。完整正文、durability 和 inspect projection 规则见 [phase-l2.4.md](phase-l2.4.md)。
 
 ## L3 — Preset（未来）
 

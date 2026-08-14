@@ -145,7 +145,7 @@ Direct 发送/转向消息来源：
 { kind: 'plugin', plugin: 'dsh-supervisor' }
 ```
 
-Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source。`senderSessionId` 只能来自 selection 绑定的 exact caller Agent，`deliveryId` 由 Provider 生成并用于 receipt correlation。正文只提供 untrusted model-visible envelope，不是授权或 correlation 来源。Relay source 已包含在现有 durable `user/message` 中，不新增 Fleet Session event。
+Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source。`senderSessionId` 只能来自 selection 绑定的 exact caller Agent，`deliveryId` 由 Provider 生成并用于 receipt correlation。模型可见 header 同时编码 sender 和 delivery id；固定 marker 之后的 body 从独立 text block 开始并保持 untrusted。正文不是授权或 correlation 来源。Relay source 已包含在现有 durable `user/message` 中，不新增 Fleet Session event。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
 
 对象范围：
 

@@ -337,6 +337,35 @@ describe('Fleet L1 behavior', () => {
     expect(root.steer).not.toHaveBeenCalled()
   })
 
+  it('11a. omits malformed or legacy durable relay sources from authoritative attribution', async () => {
+    const { ctx } = await createHarness({ ...TEST_CONFIG, maxTailMessages: 10 })
+    const root = createStubAgent(ctx, 'root')
+    for (const source of [
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_1234567890abcdef' },
+      { kind: 'fleet-relay', version: 0, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_legacy' },
+      { kind: 'fleet-relay', version: 1, form: 'other', senderSessionId: 'sender', deliveryId: 'fd_form' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: '', deliveryId: 'fd_empty_sender' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: '' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'not-a-delivery' },
+      { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_has space' },
+    ]) {
+      root.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'crafted relay body' }],
+        source: source as never,
+      }), { surfaceOp: 'append' })
+    }
+    register(ctx, root)
+
+    const view = ctx.fleet.inspect('root', { tailMessages: 99 })
+    expect(view.tailMessages).toHaveLength(8)
+    expect(view.tailMessages.filter(message => message.relay !== undefined)).toEqual([
+      expect.objectContaining({ relay: { version: 1, form: 'relay', senderSessionId: 'sender', deliveryId: 'fd_1234567890abcdef' } }),
+    ])
+    expect(JSON.stringify(view)).not.toContain('fd_legacy')
+    expect(JSON.stringify(view)).not.toContain('not-a-delivery')
+  })
+
   it('11. reports omitted candidates separately from per-message text truncation', async () => {
     const { ctx } = await createHarness()
     const root = createStubAgent(ctx, 'root')

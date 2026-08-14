@@ -199,6 +199,7 @@ describe('built package through real Loader composition', () => {
     if (delivered === undefined) throw new Error('missing delivered relay')
     expect(delivered.source).toMatchObject({
       kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId: 'loader-caller',
+      deliveryId: (sent.value as { deliveryId: string }).deliveryId,
     })
     expect(delivered.source).not.toHaveProperty('targetRef')
     expect(delivered.source).not.toHaveProperty('selectionHandle')

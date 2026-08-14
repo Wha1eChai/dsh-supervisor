@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
 import { classifyAgent, resolveControl } from '../classify.js'
 import { FleetService } from '../service.js'
-import type { FleetDeliveryId } from '../relay.js'
+import { parseFleetRelaySource, type FleetDeliveryId } from '../relay.js'
 import {
   FleetError,
   type FleetAgentKind,
@@ -553,12 +553,13 @@ function relaySource(message: UserMessage): { deliveryId: FleetDeliveryId } {
 }
 
 function getRelayView(message: Message): FleetRelayView | undefined {
-  if (message.source.kind !== 'fleet-relay') return undefined
+  const source = parseFleetRelaySource(message.source)
+  if (source === undefined) return undefined
   return {
-    version: message.source.version,
-    form: message.source.form,
-    senderSessionId: message.source.senderSessionId,
-    deliveryId: message.source.deliveryId,
+    version: source.version,
+    form: source.form,
+    senderSessionId: source.senderSessionId,
+    deliveryId: source.deliveryId,
   }
 }
 

@@ -63,9 +63,12 @@ Self target 和 runtime delegated target 可以 inspect，但不会收到 select
 |---|---|---|
 | `fleet_list` | `roots_only?`, `running_only?` | `{ agents: FleetTargetView[], count }` |
 | `fleet_inspect` | `target_ref`, `tail_messages?` | `{ agent: FleetInspectView, selection? }` |
-| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId }` |
-| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId }` |
+| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
+| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
+
 | `fleet_cancel` | `selection_handle`, `keep_inbox?` | `{ sessionId, accepted: true }` |
+
+L2.4 augments both selected-write outputs with the Provider-generated opaque `deliveryId`; see [phase-l2.4.md](phase-l2.4.md).
 
 五个工具都要求 owning Agent，并只从 `exec.agent.session.id` 派生 caller。List/inspect 保持 parallel；write 保持 exclusive。
 
