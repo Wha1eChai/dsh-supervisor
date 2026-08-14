@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**L2.2 已完成实现，待发布前真实 smoke**：独立 `@wha1echai/dsh-supervisor/tool` Consumer 为同一运行中 DSH runtime 的 live Session 提供安全分级的 `fleet_*` 模型工具；Fleet 已通过 exact Agent 是否属于 `ctx.agents.roots()` 权威分类 runtime root/delegated，并通过真实 ToolRuntime、AgentRegistry lifecycle 与构建产物 Loader composition 测试。模型写工具现在使用 caller-bound `target_ref` 和 exact-Agent-bound single-attempt `selection_handle`，不再跨调用复制长 `sessionId`。
+**L2.2 已完成**：独立 `@wha1echai/dsh-supervisor/tool` Consumer 为同一运行中 DSH runtime 的 live Session 提供安全分级的 `fleet_*` 模型工具；Fleet 已通过 exact Agent 是否属于 `ctx.agents.roots()` 权威分类 runtime root/delegated，并通过真实 ToolRuntime、AgentRegistry lifecycle 与构建产物 Loader composition 测试。模型写工具现在使用 caller-bound `target_ref` 和 exact-Agent-bound single-attempt `selection_handle`，不再跨调用复制长 `sessionId`。Keyless 门禁和同一 Web runtime 的双 Session 真实消息验收均已通过。
 
 Delegated child 写入、主管 Agent、跨进程/远程 transport、Web 产品面、Electron、daemon 和多 runtime control 都还没开始。下一项能力变更应单独定义阶段范围。
 

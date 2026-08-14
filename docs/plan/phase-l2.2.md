@@ -1,6 +1,6 @@
 # L2.2 — Confirmed Fleet target writes
 
-**状态：已实现，待发布前真实 smoke。** 本阶段把模型工具的目标选择改为 Provider 强制确认，不改变可信程序化 Consumer 使用的直接 `sessionId` Service API。
+**状态：已完成。** 本阶段把模型工具的目标选择改为 Provider 强制确认，不改变可信程序化 Consumer 使用的直接 `sessionId` Service API。Keyless 门禁和同一 Web runtime 的双 Session 真实消息验收均已通过。
 
 ## 目标
 
@@ -124,7 +124,8 @@ Keyless tests 覆盖：
 - 每 caller selection 上限；
 - Provider unload 后 retained Service fail closed；
 - ToolRuntime schema hard cut、caller identity、abort 和 structured Fleet error；
-- built Loader composition 通过 owning Agent 调用真实 `fleet_list`。
+- built Loader composition 通过 owning Agent 调用真实 `fleet_list`；
+- 同一 Web runtime 中，发送 Session 通过 `fleet_list` 返回的 byte-exact `target_ref` inspect 目标，再使用该 inspect 签发的 byte-exact `selection_handle` 调用 `fleet_send`；写结果返回预期目标 `sessionId`，目标 Session 收到指定 follow-up。
 
 ## 不做
 
