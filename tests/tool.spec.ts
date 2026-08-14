@@ -5,6 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, type ToolSchema } from '@deepseek-ai/dsh-llm'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -203,9 +204,9 @@ async function harness(mode: toolPlugin.Config['controlMode'] = 'full') {
   return { ctx, fiber, fleet }
 }
 
-function fakeAgent(rawId: string): Agent {
+function fakeAgent(rawId: string, ctx?: Context): Agent {
   const session = Session.create(SessionId(rawId))
-  return { session } as Agent
+  return { session, ...(ctx === undefined ? {} : { ctx }) } as Agent
 }
 
 function call(
@@ -333,6 +334,30 @@ describe('Fleet tool namespace and configuration', () => {
         expect(Object.keys(schema.parameters.properties ?? {})).not.toContain(forbidden)
       }
     }
+  })
+
+  it('registers the core Fleet tools only in the intended composition scope', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(RecordingFleet)
+
+    const withFleet = createScope(ctx, {})
+    const withoutFleet = createScope(ctx, {})
+    await withFleet.ctx.plugin(toolPlugin as any, { controlMode: 'full' })
+
+    const servedKey = {}
+    const unservedKey = {}
+    bindScopeParent(servedKey, scopeOf(withFleet.ctx) as object)
+    bindScopeParent(unservedKey, scopeOf(withoutFleet.ctx) as object)
+
+    expect(ctx.tools.schemas(servedKey).map(schema => schema.name).sort()).toEqual([...TOOL_NAMES].sort())
+    expect(ctx.tools.schemas(unservedKey)).toEqual([])
+    expect(ctx.tools.schemas()).toEqual([])
+
+    const result = await call(ctx, 'fleet_list', {}, { agent: fakeAgent('unserved', withoutFleet.ctx) })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
   })
 
   it('3. removes every registered tool on HMR and unload', async () => {
