@@ -53,7 +53,7 @@ Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最�
 
 ## 写入工具的副作用
 
-`fleet_send` 会接受消息、唤醒目标 Agent 的工作循环，并可能触发模型请求和工具调用，因此可能消耗模型与工具资源。`fleet_steer` 会改变目标 Agent 正在进行的工作，并可能触发后续模型请求和工具调用。`fleet_cancel` 会中断目标 Agent 的活动工作；取消不会回滚已经被模型或工具接受的工作，工具调用外层的 late abort 也不撤销已发生的 Fleet 写入。
+`fleet_send` 把消息排入目标的下一 turn；如果目标正在运行，它等待当前 turn 结束，不修改该 turn。`fleet_steer` 把消息放入当前 turn 的下一 step boundary；目标 idle 时它也会唤醒目标并以该 steering input 开始一个 turn。需要等待正在运行的目标完成当前 turn 时使用 `fleet_send`，需要修改当前工作方向时使用 `fleet_steer`。两者都可能触发模型请求和工具调用，因此可能消耗模型与工具资源。`fleet_cancel` 会中断目标 Agent 的活动工作；取消不会回滚已经被模型或工具接受的工作，工具调用外层的 late abort 也不撤销已发生的 Fleet 写入。
 
 ## 模型 confirmed-target protocol
 
