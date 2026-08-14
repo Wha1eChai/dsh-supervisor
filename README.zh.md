@@ -4,7 +4,7 @@
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区插件，当前专注于同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供可替换的 `ctx.fleet` 服务，并通过该服务提供模型可调用的 `fleet_*` 工具。
 
-> **状态：Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。
+> **状态：目标版本为 `0.1.0-rc.1` 的 prerelease、Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。目标 prerelease 使用 `next` dist-tag，不承诺 stable 兼容性。
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。它运行在现有 DSH 进程内，不启动 daemon、第二套 Agent runtime 或独立网络端口。
 
@@ -36,9 +36,9 @@ Subagent 和 workflow 工具属于可选 profile 组合。只有对应公开 sea
 
 - `list()` — 列出当前 DSH 进程的 live Agent；
 - `inspect()` — 返回有限且 JSON-safe 的对话摘要；
-- `send()` — 给 live root Agent 排入 plugin-source follow-up；
-- `steer()` — 转向 live root Agent；
-- `cancel()` — 使用稳定 Fleet 原因取消 live root Agent；
+- `send()` — 给 live root Agent 排入 plugin-source follow-up；它会唤醒目标的工作循环，并可能消耗模型和工具资源；
+- `steer()` — 转向 live root Agent；它会改变正在进行的工作，并可能消耗模型和工具资源；
+- `cancel()` — 使用稳定 Fleet 原因取消 live root Agent；它会中断正在进行的工作，但不会回滚已经被模型或工具接受的工作；
 - `subscribe()` — 观察投影后的 created/status/disposed 事件。
 
 confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-relay` source。exact caller Agent 提供 `senderSessionId`，Provider 提供 opaque `deliveryId`。模型可见 header 同时编码两者；固定 marker 之后的正文从独立 text block 开始，按原文保留为不可信模型输入，不能覆盖结构化归因。
@@ -83,7 +83,7 @@ API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fl
 
 ## 安装
 
-目前尚未发布 npm 包。请使用本地 checkout，或固定 commit 的 GitHub 源安装。
+目前尚未发布 npm 包。目标首个 prerelease 是 `next` dist-tag 下的 `0.1.0-rc.1`。发布前请使用本地 checkout 或固定 commit 的 GitHub 源安装；发布后应指定完整版本，不要依赖裸包名的默认 dist-tag。
 
 ### 本地 checkout
 
@@ -162,7 +162,12 @@ pnpm run build
 pnpm pack
 ```
 
-测试使用真实 `ToolRuntime`，验证 canonical value 和模型可见内容，并通过官方 Loader + Include 从 test-only `cordis.yml` 加载构建后的 Provider、tool 和 reply-job entry。测试还明确防止所有 namespace entry 出现 `default` export，并验证 Provider/Consumer 卸载。
+测试使用真实 `ToolRuntime`，验证 canonical value 和模型可见内容，并通过官方 Loader + Include 从 test-only `cordis.yml` 加载构建后的 Provider、tool 和 reply-job entry。测试还明确防止所有 namespace entry 出现 `default` export，并验证 Provider/Consumer 卸载。packed artifact 门禁会检查 tarball 内容、声明入口、Loader namespace unwrap 和 package self-reference metadata：
+
+```sh
+pnpm pack --pack-destination .pack-output/dev
+pnpm run check:packed -- .pack-output/dev
+```
 
 ## 路线 / TODO
 
@@ -179,7 +184,7 @@ pnpm pack
 - [ ] **L4+** — 未来独立 profile、一等产品面和 transport；这些都不是当前支持。
 - [ ] **L5 可选项** — 在未来受支持产品面之上的可选 Electron wrapper。
 - [ ] **L6+** — 未来 daemon 和多 runtime Fleet Provider。
-- [ ] 完成用户可见验证后发布第一个 registry 包。
+- [ ] 完成隔离 source/tarball 验证和用户可见验收后，以 `next` dist-tag 发布 `0.1.0-rc.1`。
 - [ ] 为每个支持的 DSH release candidate 添加兼容性 CI。
 
 详细阶段边界见 [docs/plan/layers.md](docs/plan/layers.md)。
@@ -195,7 +200,7 @@ pnpm pack
 
 ## 参与贡献
 
-欢迎通过本仓库提交 bug、设计反馈和范围清晰的 Pull Request。贡献必须保留 capability seam：Consumer 依赖 `ctx.fleet`，delegated 写入通过未来的 Fleet API 接入 `ctx.subagents`，编排留在 `ctx.workflowEngine`，模型可见能力由 profile 中实际挂载的 seam 和 Consumer 决定。
+欢迎通过本仓库提交 bug、设计反馈和范围清晰的 Pull Request。贡献必须保留 capability seam：Consumer 依赖 `ctx.fleet`，delegated 写入通过未来的 Fleet API 接入 `ctx.subagents`，编排留在 `ctx.workflowEngine`，模型可见能力由 profile 中实际挂载的 seam 和 Consumer 决定。详见 [CONTRIBUTING.md](CONTRIBUTING.md)、[SECURITY.md](SECURITY.md) 和[发布与回滚](docs/release.md)。
 
 ## 协议
 

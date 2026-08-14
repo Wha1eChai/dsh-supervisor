@@ -10,6 +10,7 @@
 | 架构 | [architecture.md](architecture.md) | 如何挂在 DSH 上、公开 seam、同 runtime 边界和工具发现 |
 | 计划 | [plan/README.md](plan/README.md) | 分层、已做决定、每阶段范围和验收 |
 | 参考 | [reference/fleet.md](reference/fleet.md) | Fleet API、错误码、配置字段 |
+| 发布 | [release.md](release.md) | prerelease、packed artifact、隔离安装和回滚 |
 
 尚未开始的阶段不要在产品/架构文档里展开实现细节；那些内容只放在计划组对应阶段页。
 
@@ -27,6 +28,8 @@
 |---|---|
 | [../README.md](../README.md) / [../README.zh.md](../README.zh.md) | 公开仓库说明、安装、状态和 TODO |
 | [../AGENTS.md](../AGENTS.md) | 在本仓库改代码时的实现约束 |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献流程和验证要求 |
+| [../SECURITY.md](../SECURITY.md) | 私密漏洞报告和安全范围 |
 
 ## 写作约定
 

@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
 
-> **Status: tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
+> **Status: `0.1.0-rc.1` target prerelease, tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service. The target prerelease uses the `next` dist-tag and is not a stable compatibility promise.
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI. It runs inside the existing DSH process and does not start a daemon, a second agent runtime, or a separate network port.
 
@@ -36,9 +36,9 @@ See [docs/architecture.md](docs/architecture.md) for the complete constraints.
 
 - `list()` — list live Agents in the current DSH process;
 - `inspect()` — return a bounded, JSON-safe transcript summary;
-- `send()` — enqueue a plugin-sourced follow-up for a live root Agent;
-- `steer()` — steer a live root Agent;
-- `cancel()` — cancel a live root Agent with a stable Fleet cause;
+- `send()` — enqueue a plugin-sourced follow-up for a live root Agent; it wakes the target's work loop and may consume model and tool resources;
+- `steer()` — steer a live root Agent; it changes active work and may consume model and tool resources;
+- `cancel()` — cancel a live root Agent with a stable Fleet cause; it interrupts active work, but does not roll back already accepted model or tool work;
 - `subscribe()` — observe projected create/status/dispose events.
 
 Confirmed-target model `fleet_send` / `fleet_steer` use a versioned `fleet-relay` source. The exact caller Agent supplies `senderSessionId`; the Provider supplies an opaque `deliveryId`. The model-visible header encodes both values; the body starts after a fixed marker in a separate text block, is preserved as untrusted model input, and cannot override structured attribution.
@@ -83,7 +83,7 @@ The first release line intentionally makes no compatibility promise across DSH r
 
 ## Install
 
-No npm release is published yet. Use a local checkout or a commit-pinned GitHub source installation.
+No npm release is published yet. The target first prerelease is `0.1.0-rc.1` on the `next` dist-tag. Until it is published, use a local checkout or a commit-pinned GitHub source installation. After publication, install the exact version rather than the bare package name.
 
 ### Local checkout
 
@@ -162,7 +162,12 @@ pnpm run build
 pnpm pack
 ```
 
-The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using the built Provider, tool, and reply-job entries. They also guard all namespace entries against a `default` export and verify Provider/Consumer unload behavior.
+The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using the built Provider, tool, and reply-job entries. They also guard all namespace entries against a `default` export and verify Provider/Consumer unload behavior. The packed-artifact gate checks tarball contents, declarations, Loader namespace unwrapping, and package self-reference metadata:
+
+```sh
+pnpm pack --pack-destination .pack-output/dev
+pnpm run check:packed -- .pack-output/dev
+```
 
 ## Roadmap / TODO
 
@@ -179,7 +184,7 @@ The tests use the real `ToolRuntime`, validate canonical values and model-facing
 - [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.
 - [ ] **L5 option** — optional Electron wrapper around a future supported surface.
 - [ ] **L6+** — future daemon and multi-runtime Fleet Providers.
-- [ ] Publish the first registry package after user-facing verification.
+- [ ] Publish `0.1.0-rc.1` on the `next` dist-tag after isolated source/tarball verification and user-facing validation.
 - [ ] Add compatibility CI for each supported DSH release candidate.
 
 Detailed phase boundaries are in [docs/plan/layers.md](docs/plan/layers.md).
@@ -195,7 +200,7 @@ Start at [docs/README.md](docs/README.md):
 
 ## Contributing
 
-Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, orchestration stays in `ctx.workflowEngine`, and model-visible capability follows the seams and Consumers actually mounted in the profile.
+Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, orchestration stays in `ctx.workflowEngine`, and model-visible capability follows the seams and Consumers actually mounted in the profile. See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [release and rollback](docs/release.md).
 
 ## License
 

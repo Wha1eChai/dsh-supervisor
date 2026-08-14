@@ -2,8 +2,8 @@ node_modules
 dist
 coverage
 .pack-output
-.dsh-supervisor-*-home
-.dsh-supervisor-release-consumer
+.dsh-cross-session-*-home
+.dsh-cross-session-release-consumer
 *.tgz
 .pi/
 *.tsbuildinfo
