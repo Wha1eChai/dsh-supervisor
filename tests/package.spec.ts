@@ -11,6 +11,7 @@ describe('package entry point', () => {
       peerDependencies: Record<string, string>
       peerDependenciesMeta: Record<string, { optional?: boolean }>
       exports: Record<string, unknown>
+      dsh: { bundle: { patch: string } }
     }
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-brand']).toBe('0.1.0-rc.6')
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-jobs']).toBe('0.1.0-rc.6')
@@ -22,6 +23,13 @@ describe('package entry point', () => {
       './tool': expect.any(Object),
       './reply-job': expect.any(Object),
     })
+    expect(packageJson.dsh.bundle.patch).toBe('./cordis.patch.yml')
+    expect(await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')).toBe([
+      '- insert:',
+      '    - id: dsh-supervisor',
+      "      name: '@wha1echai/dsh-supervisor'",
+      '',
+    ].join('\n'))
   })
 
   it('keeps the Loader-safe namespace plugin shape', () => {
@@ -53,14 +61,20 @@ describe('package entry point', () => {
   it('keeps the reply-job subpath namespace Loader-safe', () => {
     expect('default' in replyJobPlugin).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader
-    const unwrapped = loader.unwrapExports(replyJobPlugin) as Record<string, unknown>
-    expect(unwrapped).toBe(replyJobPlugin)
+    const namespace = replyJobPlugin as unknown as {
+      name: string
+      inject: string[]
+      Config: (value?: unknown) => { maxOutputBytes: number }
+      apply: typeof replyJobPlugin.apply
+    }
+    const unwrapped = loader.unwrapExports(namespace) as Record<string, unknown>
+    expect(unwrapped).toBe(namespace)
     expect(unwrapped.name).toBe('tool-dsh-supervisor-reply-job')
     expect(unwrapped.inject).toEqual(['tools', 'fleet'])
-    expect(unwrapped.Config).toBe(replyJobPlugin.Config)
+    expect(unwrapped.Config).toBe(namespace.Config)
     expect(unwrapped.apply).toBe(replyJobPlugin.apply)
-    expect(replyJobPlugin.Config()).toEqual({ maxOutputBytes: 300_000 })
-    expect(() => replyJobPlugin.Config({ maxOutputBytes: 0 })).toThrow()
+    expect(namespace.Config()).toEqual({ maxOutputBytes: 300_000 })
+    expect(() => namespace.Config({ maxOutputBytes: 0 })).toThrow()
   })
 
   it('schema supplies defaults and validates positive integers', () => {

@@ -55,7 +55,7 @@ The direct Service API keeps `sessionId` as the stable routing identifier for tr
 
 The default `controlMode` is `read-only`. All five confirmed-target tools pass the exact owning Agent object and derive its Session id for Provider cross-checking; model fields cannot supply caller identity, and agentless execution is rejected. Write authorization remains in `ctx.fleet`. Fleet classifies runtime roots by exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata do not affect `kind` or write authority. Delegated Agents remain read-only in L2.1; the Consumer never bypasses Fleet to call subagent APIs directly.
 
-The optional `@wha1echai/dsh-supervisor/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target.
+The optional `@wha1echai/dsh-supervisor/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target. Mount this Consumer in the same host or agent-preset composition as the official Jobs Consumer; its scoped ToolRuntime registration then follows that composition.
 
 When the optional `sessionTitle` service is mounted, Fleet reads only an already logged title from the exact live Session and exposes it as a display field in list/inspect projections. Missing or unloaded title service leaves Fleet available without `title`; title never affects identity, routing, selection, ordering, filtering, or authorization. Inspect separately reports messages omitted by the tail limit and per-message `textTruncated` facts.
 
@@ -126,16 +126,21 @@ Review the source and pin a commit before granting install-time execution permis
 
 ## Usage
 
-The Bundle installs the Provider, core tool Consumer, and optional reply-job Consumer entries. Its safe default exposes `fleet_list` and `fleet_inspect`; `fleet_wait` also appears when the host profile mounts the public Jobs seam and an official Jobs controller Consumer. It can consume only a reply receipt returned by enabled `fleet_send`. To enable message or cancellation tools, override the complete `dsh-supervisor-tools` row in the profile's `cordis.patch.yml`:
+The Bundle installs only the host-plane Fleet Provider. Mount the core tool Consumer and optional reply-job Consumer in the agent composition that should receive them. This avoids exposing Fleet tools to sibling presets. For a pre-preset host composition, add the same rows to that profile instead.
 
 ```yaml
 - id: dsh-supervisor-tools
   name: '@wha1echai/dsh-supervisor/tool'
   config:
     controlMode: message # read-only | message | full
+
+- id: dsh-supervisor-reply-job
+  name: '@wha1echai/dsh-supervisor/reply-job'
 ```
 
-Use `full` only in a profile where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
+The core Consumer's safe default exposes `fleet_list` and `fleet_inspect`. `fleet_wait` appears only in compositions that mount the optional reply-job Consumer and can resolve the public Jobs seam; starting its job additionally requires an official Jobs controller Consumer in the owner's composition. It can consume only a reply receipt returned by enabled `fleet_send`.
+
+Set `controlMode` on the complete `dsh-supervisor-tools` row to change message or cancellation visibility. Use `full` only in a composition where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
 
 Other plugins may consume Fleet directly by declaring `fleet` as a required service:
 

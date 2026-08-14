@@ -47,7 +47,7 @@ Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最�
 | `message` | 只读工具 + `fleet_send`、`fleet_steer` |
 | `full` | 全部工具，包括 `fleet_cancel` |
 
-已运行 Session 在下一次模型请求中通过正常 ToolRuntime composition 看到当前工具。核心 `./tool` 入口只注册上述五个工具，不注册或宣传 subagent/workflow 工具。可选 `./reply-job` 入口在 `ctx.jobs` 可用时另注册 `fleet_wait`；实际启动 job 还要求宿主组合官方 Jobs controller Consumer。
+已运行 Session 在下一次模型请求中通过正常 ToolRuntime composition 看到当前工具。核心 `./tool` 入口只注册上述五个工具，不注册或宣传 subagent/workflow 工具。可选 `./reply-job` 入口在 `ctx.jobs` 可用时另注册 `fleet_wait`；实际启动 job 还要求 owning Agent 的 composition 有官方 Jobs controller Consumer。两个 Consumer 都应挂在 intended Agent 的 host/preset composition，ToolRuntime 会按注册 scope 向该 composition 及其后代暴露工具，不向 sibling preset 暴露。
 
 五个工具都要求 owning Agent，并且只从 `exec.agent.session.id` 派生 caller identity。模型不能提交 caller id。List/inspect 为 parallel；send/steer/cancel 为 exclusive。
 
@@ -173,7 +173,7 @@ Abort 只停止 observation，不 cancel 或 steer target。结果可在 wait �
 fleet_wait(reply_receipt) -> { jobId }
 ```
 
-它只生产 owner-scoped `fleet-reply` job，并通过独立入口配置 `maxOutputBytes`（默认 300000）限制官方 job output/notice 的完整 UTF-8 大小。官方 `dsh-tool-jobs` 继续提供 `job_output` / `job_list` / `job_kill`、controller 和 completion notice；Fleet 不复制这些能力。Job kill 只 abort observation，不取消 target。
+它只生产 owner-scoped `fleet-reply` job，并通过独立入口配置 `maxOutputBytes`（默认 300000）限制官方 job output/notice 的完整 UTF-8 大小。官方 `dsh-tool-jobs` 继续提供 `job_output` / `job_list` / `job_kill`、controller 和 completion notice；Fleet 不复制这些能力。`./reply-job` 应与这些 controls 挂在同一个 composition scope。Job kill 只 abort observation，不取消 target。
 
 ## Agent 视图与 runtime ownership
 

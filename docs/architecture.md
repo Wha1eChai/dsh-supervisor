@@ -140,7 +140,7 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 Selected follow-up 在 target side effect 前建立 caller-bound、exact-target-bound reply record。Provider 只用 `agent/inbox/claimed` 将 exact message 绑定到 turn，再从 exact target Session 的 `assistant/message` 与 `turn/end` 生成 bounded turn-level result。它不使用 `agent/status`、`whenIdle()` 或轮询，不声称 assistant output 只由该 message 因果产生，并且不把 steer 解释成独立 reply turn。
 
-`@wha1echai/dsh-supervisor/reply-job` 是独立 Consumer：只在 `ctx.jobs` 存在时注册 `fleet_wait` 并生产 `fleet-reply` job。它不注册 job list/output/kill，不 attach controller，不发送 completion notice；这些职责留给官方 Jobs Consumer。
+`@wha1echai/dsh-supervisor/reply-job` 是独立 Consumer：只在 `ctx.jobs` 存在时注册 `fleet_wait` 并生产 `fleet-reply` job。它不注册 job list/output/kill，不 attach controller，不发送 completion notice；这些职责留给官方 Jobs Consumer。该入口必须挂在 intended Agent 的 host/preset composition 中，并与官方 Jobs Consumer 的 scope 对齐；ToolRuntime 按注册 context 的 scope 只向该 composition 及其后代暴露工具。
 
 ## 当前 Provider 行为
 
@@ -168,7 +168,7 @@ Provider 为 exact Agent 对象缓存已观察到的 runtime classification，�
 
 ## 组合
 
-插件声明 `dsh.bundle.patch`。patch **只 insert 自己的 row**，不整行替换官方 bundle config。
+插件声明 `dsh.bundle.patch`。patch **只 insert host-plane Provider row**，不整行替换官方 bundle config。模型 Consumer 不由 Bundle 全局插入；部署者把 `./tool` 和可选 `./reply-job` 行加入需要 Fleet 能力的 agent preset composition（或不使用 preset 的 legacy host composition）。
 
 当前调试宿主是现有 `web` profile。它不表示插件提供 remote Web 或 supervisor UI；独立 `supervisor` profile 属于未来 L4+。
 

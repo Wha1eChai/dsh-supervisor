@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -11,6 +12,7 @@ import { FleetService } from '../src/service.js'
 import * as replyJobPlugin from '../src/reply-job.js'
 
 const contexts: Context[] = []
+const loadReplyJob = replyJobPlugin as any
 
 afterEach(async () => {
   while (contexts.length > 0) await contexts.pop()?.fiber.dispose()
@@ -54,11 +56,45 @@ async function harness(withJobs = true) {
     await ctx.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 2 })
     ctx.jobs.attachController('reply-job-test')
   }
-  await ctx.plugin(replyJobPlugin, { maxOutputBytes: 1024 })
+  await ctx.plugin(loadReplyJob, { maxOutputBytes: 1024 })
   return { ctx, fleet: ctx.fleet as ReplyFleet }
 }
 
 describe('Fleet reply job Consumer', () => {
+  it('registers in its composition scope instead of leaking into sibling agents', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(ReplyFleet)
+    await ctx.plugin(LocalJobRegistry, { maxConcurrentJobsPerOwner: 2 })
+
+    const withFleetWait = createScope(ctx, {})
+    const withoutFleetWait = createScope(ctx, {})
+    await withFleetWait.ctx.plugin(loadReplyJob, { maxOutputBytes: 1024 })
+
+    const servedKey = {}
+    const unservedKey = {}
+    bindScopeParent(servedKey, scopeOf(withFleetWait.ctx) as object)
+    bindScopeParent(unservedKey, scopeOf(withoutFleetWait.ctx) as object)
+
+    expect(ctx.tools.schemas(servedKey).map(schema => schema.name)).toEqual(['fleet_wait'])
+    expect(ctx.tools.schemas(unservedKey).map(schema => schema.name)).toEqual([])
+    expect(ctx.tools.schemas()).toEqual([])
+
+    const unserved = agent(withoutFleetWait.ctx, 'unserved-owner')
+    ctx.agents.register(unserved)
+    const result = await ctx.tools.execute({
+      callId: CallId('unserved-reply-job'),
+      name: 'fleet_wait',
+      arguments: { reply_receipt: 'fr_1234567890abcdef' },
+      signal: new AbortController().signal,
+      agent: unserved,
+    })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
+  })
+
   it('appears only with jobs and starts one owner-scoped final-output job', async () => {
     const absent = await harness(false)
     expect(absent.ctx.tools.get('fleet_wait')).toBeUndefined()

@@ -60,7 +60,7 @@ fleet_wait(reply_receipt)
   -> { jobId }
 ```
 
-该 Consumer 仅调用 `ctx.jobs.start()` 生产 owner-scoped `fleet-reply` final-output job，并用 `maxOutputBytes`（默认 300000）设置官方 Jobs Consumer 的完整输出上限；它不注册 `job_output`、`job_list`、`job_kill`，不 attach controller，也不发送 completion notice。官方 `@deepseek-ai/dsh-tool-jobs` 继续独占这些职责。没有 `ctx.jobs` 时 `fleet_wait` 不注册。
+该 Consumer 仅调用 `ctx.jobs.start()` 生产 owner-scoped `fleet-reply` final-output job，并用 `maxOutputBytes`（默认 300000）设置官方 Jobs Consumer 的完整输出上限；它不注册 `job_output`、`job_list`、`job_kill`，不 attach controller，也不发送 completion notice。官方 `@deepseek-ai/dsh-tool-jobs` 继续独占这些职责。没有 `ctx.jobs` 时 `fleet_wait` 不注册。入口应与 intended Agent 的官方 Jobs Consumer 挂在同一个 host/preset composition；ToolRuntime 会按注册 context 的 scope 向该 composition 暴露 `fleet_wait`，sibling composition 不可见。
 
 Job kill abort reply observation；它不取消 target Agent。Job output 是 `FleetReplyResult` 的 JSON 文本，官方 job tools 负责 bounded read、wait、ownership、kill 和 completion wake policy。
 
@@ -80,7 +80,7 @@ Expiry 采用 lazy prune；active observer 不因 TTL 到期被后台 timer 中�
 - 精确 message claim、multi-step assistant、turn end、pre-step rejection、discard 和 completion-before-wait。
 - caller mismatch、single observer、capacity、abort、caller/target disposal、Provider unload 和 same-id replacement。
 - reply 文本数量/字符 bounds 和完整 `TurnEndReason`。
-- `fleet_wait` 只在 Jobs seam 可用时注册，创建 owner-scoped `fleet-reply` job，kill 只 abort observation。
+- `fleet_wait` 只在 Jobs seam 可用时注册，按 Consumer composition scope 对 intended Agent 可见，创建 owner-scoped `fleet-reply` job，kill 只 abort observation。
 - built root、`./tool`、`./reply-job` namespace entries 无 `default` export；真实 Loader composition 覆盖 optional Jobs Consumer。
 
 ## 不做

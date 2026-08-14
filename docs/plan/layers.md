@@ -72,7 +72,7 @@ Confirmed-target selected `send` / `steer` 使用 Provider 生成的 versioned `
 
 Selected `send` 返回 caller-bound single-observer `replyReceipt`；Provider 通过 exact message claim 绑定 turn，收集同 turn bounded assistant output，并在 `turn/end` 返回 turn-level result。它不使用 idle heuristic，也不声称一条 assistant output 只由一条 relay 因果产生。Discard、target unavailable、caller disposal、abort、expiry 和 Provider unload 都按独立 terminal semantics 结算或 fail closed。
 
-可选 `./reply-job` Consumer 仅在 `ctx.jobs` 可用时注册 `fleet_wait`，生产 owner-scoped `fleet-reply` job；官方 Jobs Consumer 继续提供 output/list/kill、controller 和 completion notice。详见 [phase-l2.5.md](phase-l2.5.md)。
+可选 `./reply-job` Consumer 仅在 `ctx.jobs` 可用时注册 `fleet_wait`，并按注册 composition scope 向 intended Agent 暴露工具，生产 owner-scoped `fleet-reply` job；官方 Jobs Consumer 继续提供 output/list/kill、controller 和 completion notice。详见 [phase-l2.5.md](phase-l2.5.md)。
 
 ## L3 — Preset（未来）
 

@@ -55,7 +55,7 @@ confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-rel
 
 `controlMode` 默认是 `read-only`。五个 confirmed-target 工具都把 owning Agent 的 exact object 传给 Provider，并从它派生 Session id 做交叉校验；模型字段不能提供 caller identity，没有 owning Agent 时直接失败。写授权继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
 
-可选入口 `@wha1echai/dsh-supervisor/reply-job` 只在 `ctx.jobs` 已挂载时注册 `fleet_wait`。它创建 owner-scoped `fleet-reply` 后台 job；output/list/kill、controller 和 completion notice 继续由官方 job tools 负责。Kill job 只 abort reply observation，不 cancel target。
+可选入口 `@wha1echai/dsh-supervisor/reply-job` 只在 `ctx.jobs` 已挂载时注册 `fleet_wait`。它创建 owner-scoped `fleet-reply` 后台 job；output/list/kill、controller 和 completion notice 继续由官方 job tools 负责。Kill job 只 abort reply observation，不 cancel target。应把该 Consumer 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；它的 scoped ToolRuntime 注册会跟随该 composition。
 
 挂载可选的 `sessionTitle` 服务后，Fleet 只从 exact live Session 读取日志中已经记录的标题，并把它作为 list/inspect 的展示字段。标题服务缺失或卸载时 Fleet 仍可用，只省略 `title`；标题不影响 identity、routing、selection、顺序、过滤或授权。Inspect 另外报告 tail limit 省略的消息数和每条消息的 `textTruncated` 事实。
 
@@ -126,16 +126,21 @@ allowBuilds:
 
 ## 使用
 
-Bundle 会安装 Provider、核心工具 Consumer 和可选 reply-job Consumer 三个 package entry。安全默认值暴露 `fleet_list` 和 `fleet_inspect`；宿主 profile 同时挂载 public Jobs seam 和官方 Jobs controller Consumer 时还会出现 `fleet_wait`，但它只能消费已启用 `fleet_send` 返回的 reply receipt。如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-supervisor-tools` 行：
+Bundle 只安装 host-plane Fleet Provider。核心工具 Consumer 和可选 reply-job Consumer 应挂在需要这些能力的 Agent composition 中，避免向 sibling preset 暴露 Fleet 工具。对于尚未使用 preset 的 host composition，则把同样的行加入对应 profile。
 
 ```yaml
 - id: dsh-supervisor-tools
   name: '@wha1echai/dsh-supervisor/tool'
   config:
     controlMode: message # read-only | message | full
+
+- id: dsh-supervisor-reply-job
+  name: '@wha1echai/dsh-supervisor/reply-job'
 ```
 
-只有在明确允许模型取消其他 root Session 的 profile 中才使用 `full`。`controlMode` 只选择工具可见性，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()` 策略。
+核心 Consumer 的安全默认值暴露 `fleet_list` 和 `fleet_inspect`。只有 composition 挂载可选 reply-job Consumer 且能解析 public Jobs seam 时才会出现 `fleet_wait`；实际启动 job 还要求 owner 的 composition 挂载官方 Jobs controller Consumer。它只能消费已启用 `fleet_send` 返回的 reply receipt。
+
+如需改变消息或取消工具可见性，在完整的 `dsh-supervisor-tools` 行上设置 `controlMode`。只有在明确允许模型取消其他 root Session 的 composition 中才使用 `full`。`controlMode` 只选择工具可见性，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()` 策略。
 
 其他插件也可以把 `fleet` 声明为必需服务，直接消费 Fleet：
 

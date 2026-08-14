@@ -44,7 +44,7 @@ Follow the official DSH plugin documentation under the sibling checkout's `docs/
 - Every registration is owned by the contributing Cordis fiber through `ctx.on`, `ctx.effect`, `ctx.plugin`, or the registry's disposer contract.
 - Provider unload stops new operations. A retained old Service reference must fail without touching registries or runtime objects.
 - Observer failures are contained and must not veto authoritative Agent lifecycle events.
-- Keep the Bundle patch additive. `cordis.patch.yml` inserts repository-owned rows and does not replace unrelated profile configuration.
+- Keep the Bundle patch additive. `cordis.patch.yml` inserts only host-plane Provider rows and does not replace unrelated profile configuration; model Consumers belong in the intended Agent composition.
 - Git source installation must remain self-contained through `prepare`; published tarballs and registry packages contain built runtime artifacts.
 
 ## Model-facing tools
