@@ -83,7 +83,7 @@ API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fl
 
 ## 安装
 
-请通过完整版本或 `next` dist-tag 安装首个 prerelease。只写裸包名会选择 npm 的 `latest` tag，不属于 prerelease 安装。
+请通过完整版本或 `next` dist-tag 安装首个 prerelease。npm 要求每个包保留 `latest`；由于当前只有这一个已发布版本，`latest` 暂时也会解析为 `0.1.0-rc.1`。建议显式使用完整版本或 `next`，让安装意图保持清晰。
 
 ```sh
 dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
