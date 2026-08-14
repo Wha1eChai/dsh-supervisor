@@ -62,6 +62,8 @@ dsh --profile <name>
 
 `ctx.agents` 的 live 状态是**当前 DSH runtime 内**的。一个 Fleet Provider 实例只看见它所在的 `dsh` 进程。当前没有跨进程、跨终端或跨设备、本地到服务器、remote Web、gateway、stdio、daemon 或多 runtime 聚合实现。
 
+Fleet 可机会式读取可选的 `ctx.sessionTitle`，以 exact `agent.session` 调用 `get()` 读取日志中已有的 `session/title`。这不是新的 capability seam，也不是 Provider hard dependency；服务缺失或卸载时，Fleet 继续提供 live discovery 和 inspect，只省略 `title`。Fleet 不调用标题生成、刷新、Provider 注册或 LLM。标题只属于 JSON-safe 展示投影，不影响 identity、routing、selection、排序、过滤或授权。
+
 未来跨进程或多 runtime 支持不能只把 `list()` 改成分发扫描；它将需要新的 Provider、transport、runtime namespace、寻址和权限设计。本阶段不展开这些实现规格。
 
 ## 公开 seam（允许依赖）
@@ -75,6 +77,7 @@ dsh --profile <name>
 | `ctx.subagents`（可选） | delegated 控制分类；未来 child 写路径 |
 | `ctx.workflowEngine`（未来 L3 可选组合） | 主管编排 |
 | `ctx.tools` | `fleet_*` Consumer |
+| optional `ctx.sessionTitle` | 已记录标题的展示投影；不改变 Fleet capability seam |
 | `dsh.bundle` + profile | 安装 |
 
 禁止：

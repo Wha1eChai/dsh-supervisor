@@ -1,6 +1,6 @@
 # 分层全景
 
-当前已交付范围是 L0–L2.2，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
+当前已交付范围是 L0–L2.3，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
 
 ```text
 L0  仓库骨架 + 可安装 bundle                       已交付
@@ -8,6 +8,7 @@ L1  ctx.fleet Definition + 当前进程内 Provider + 单测 已交付
 L2  fleet_* 模型工具（Consumer）                    已交付
 L2.1 AgentRegistry runtime ownership 正确性修复      已交付
 L2.2 caller-bound confirmed target writes            已交付
+L2.3 title-rich discovery + inspect truncation        已交付
 L2b delegated Session 写路径                         未来
 L3  supervisor Agent preset（条件组合可选能力）       未来
 L4  独立 profile / first-class surface / transport   未来
@@ -52,6 +53,14 @@ Provider 使用 exact Agent 对象的 `WeakMap` 缓存，挂载时 seed 已经 l
 无效、过期、caller mismatch、disposal、同 ID replacement、unload 或重复使用都 fail closed，不会回退到其他 Session。Self/delegated target 可 inspect，但不签发 selection。
 
 详见 [phase-l2.2.md](phase-l2.2.md)。
+
+## L2.3 — Title-rich discovery and inspect fidelity（已交付）
+
+Fleet 只读地读取可选 `ctx.sessionTitle` 对 exact live `Session` 的已记录 `session/title`，在服务缺失或卸载时继续提供 live discovery 与 inspect。标题仅为 JSON-safe 展示字段，不参与 identity、routing、selection、排序、过滤或授权，也不触发 refresh、generation、Provider 或 LLM。
+
+Inspect 将符合条件的 user/assistant 消息先过滤，再分别报告 `omittedMessages` 与每条摘要的 `textTruncated`，不把 tool、reasoning 或其他消息角色计入 omission。
+
+详见 [phase-l2.3.md](phase-l2.3.md)。
 
 ## L3 — Preset（未来）
 

@@ -64,3 +64,6 @@
 46. L2 工具是独立 `./tool` Consumer，只依赖 `ctx.fleet` / `ctx.tools`；不读取 `ctx.agents`、`ctx.subagents` 或 `ctx.workflowEngine`。
 47. 工具默认 `controlMode: 'read-only'`；`message` 才暴露 send/steer，`full` 才暴露 cancel。模型不能传 `callerSessionId`。
 48. Delegated child followup / interrupt 需要 subagent seam 的精确 parent authority，属于后续 L2b Service API 设计，不由 L2 Consumer 绕过。
+49. L2.3 的 title discovery 只能通过可选 `ctx.sessionTitle.get(exactLiveSession)` 读取已有 `session/title`；不得调用 `refresh`、生成标题、注册 Provider 或依赖 LLM。服务缺失或卸载时 Fleet 必须继续可用并省略 `title`。
+50. Title 只是展示投影，不能参与 Session identity、routing、target reference、selection、排序、过滤、runtime ownership 或授权，也不能扩大 live Agent corpus。
+51. Inspect 必须先过滤 user/assistant 候选，再分别记录 tail omission 的 `omittedMessages` 和每条摘要的 `textTruncated`；tool、reasoning 与其他消息角色不计入 omission。

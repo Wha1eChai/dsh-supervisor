@@ -140,6 +140,7 @@ interface FleetAgentView {
   status: AgentStatus
   kind: 'root' | 'delegated'
   control: 'direct' | 'subagent' | 'observe-only'
+  title?: string
   parentSessionId?: string
   cwd?: string
   blank: boolean
@@ -151,6 +152,10 @@ interface FleetAgentView {
 `kind` 的唯一权威来源是 exact live Agent 是否属于 `ctx.agents.roots()`。Durable `origin` 和 `parentSession` 不参与 runtime classification 或授权；`parentSession` 只投影为 lineage metadata。
 
 Runtime delegated Agent 保持只读：有 `ctx.subagents` 时 direct write 返回 `fleet-delegated-write-deferred`，否则返回 `fleet-observe-only`。Confirmed inspect 不为 delegated target 签发 selection。L2b 才会设计精确 parent authority 的 child write API。
+
+`title` 是可选的展示字段，只在 `sessionTitle` 服务可用且 exact live Session 的日志中已有 `session/title` 时出现。Fleet 只调用 `get(agent.session)`，不调用 `refresh`、`register` 或任何标题 Provider；服务缺失、卸载或没有已记录标题时省略该字段。标题不参与 Session identity、list 顺序、过滤、target reference、selection、路由或授权。
+
+`FleetInspectView` 还包含 `omittedMessages` 和 `tailMessages`。`omittedMessages` 只统计过滤出 user/assistant 后因 tail 上限省略的消息数，不统计 tool、reasoning 或其他角色。每条 `FleetMessageSummary.textTruncated` 只表示当前摘要的原始文本超过 `maxMessageTextChars`，与 tail omission 独立。
 
 ## 错误码
 

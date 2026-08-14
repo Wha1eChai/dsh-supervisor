@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type ContentBlock, type Message } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-session-title'
 import { classifyAgent, resolveControl } from '../classify.js'
 import { FleetService } from '../service.js'
 import {
@@ -96,11 +97,15 @@ export class InProcessFleetProvider extends FleetService {
     this.requireActive()
     const agent = this.requireAgent(sessionId)
     const tailCount = this.resolveTailMessages(options)
-    const tailMessages = agent.session.deriveMessages()
-      .filter(isSummarizableMessage)
+    const candidates = agent.session.deriveMessages().filter(isSummarizableMessage)
+    const tailMessages = candidates
       .slice(-tailCount)
       .map(message => this.summarize(message))
-    return { ...this.project(agent, this.classifyLive(agent)), tailMessages }
+    return {
+      ...this.project(agent, this.classifyLive(agent)),
+      omittedMessages: Math.max(0, candidates.length - tailMessages.length),
+      tailMessages,
+    }
   }
 
   /** Queue a follow-up on a root agent. */
@@ -220,11 +225,15 @@ export class InProcessFleetProvider extends FleetService {
   /** Inspect one exact live Agent without another session-id lookup. */
   private inspectAgent(agent: Agent, options: FleetInspectOptions): FleetInspectView {
     const tailCount = this.resolveTailMessages(options)
-    const tailMessages = agent.session.deriveMessages()
-      .filter(isSummarizableMessage)
+    const candidates = agent.session.deriveMessages().filter(isSummarizableMessage)
+    const tailMessages = candidates
       .slice(-tailCount)
       .map(message => this.summarize(message))
-    return { ...this.project(agent, this.classifyLive(agent)), tailMessages }
+    return {
+      ...this.project(agent, this.classifyLive(agent)),
+      omittedMessages: Math.max(0, candidates.length - tailMessages.length),
+      tailMessages,
+    }
   }
 
   /** Resolve request options against validated deployment configuration. */
@@ -258,11 +267,13 @@ export class InProcessFleetProvider extends FleetService {
   private project(agent: Agent, kind: FleetAgentKind): FleetAgentView {
     const header = agent.session.header
     const lastEvent = agent.session.events.at(-1)
+    const title = this.ctx.get('sessionTitle')?.get(agent.session)?.title
     return {
       sessionId: agent.id,
       status: agent.status,
       kind,
       control: resolveControl(this.ctx, kind),
+      ...(title === undefined ? {} : { title }),
       ...(header.parentSession === undefined ? {} : { parentSessionId: header.parentSession }),
       ...(header.cwd === undefined ? {} : { cwd: header.cwd }),
       blank: !agent.session.events.some(event => event.type === 'turn/start'),
@@ -433,8 +444,10 @@ export class InProcessFleetProvider extends FleetService {
 
   /** Convert one message to a bounded plain-text summary. */
   private summarize(message: Message & { role: 'user' | 'assistant' }): FleetMessageSummary {
-    const text = extractText(message.content).slice(0, this.config.maxMessageTextChars)
-    return { messageId: message.id, role: message.role, text }
+    const originalText = extractText(message.content)
+    const textTruncated = originalText.length > this.config.maxMessageTextChars
+    const text = originalText.slice(0, this.config.maxMessageTextChars)
+    return { messageId: message.id, role: message.role, text, textTruncated }
   }
 
   /** Classify one live event subject and deliver its projected lifecycle event. */
@@ -511,7 +524,8 @@ function createFleetMessage(text: string) {
 
 /** Keep only the user and assistant roles promised by Fleet inspect. */
 function isSummarizableMessage(message: Message): message is Message & { role: 'user' | 'assistant' } {
-  return message.role === 'user' || message.role === 'assistant'
+  if (message.role === 'assistant') return true
+  return message.role === 'user' && message.source.kind !== 'tool'
 }
 
 /** Flatten visible text blocks without exposing tool arguments or raw events. */

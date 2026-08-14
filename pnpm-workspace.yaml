@@ -24,3 +24,5 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/schemastery@3.18.1'
   - '@deepseek-ai/cordis-plugin-include@1.0.6'
   - '@deepseek-ai/cordis-plugin-loader@1.0.2'
+  - '@deepseek-ai/dsh-session-projection@0.1.0-rc.6'
+  - '@deepseek-ai/dsh-session-title@0.1.0-rc.6'

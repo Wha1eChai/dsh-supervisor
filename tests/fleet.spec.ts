@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentCarrier, Inbox, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
-import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as plugin from '../src/index.js'
 import { type Config, FleetError, InProcessFleetProvider } from '../src/index.js'
@@ -37,6 +37,16 @@ async function createRegistryHarness(subagents = false) {
   }
   disposals.push(() => registryFiber.dispose())
   return { ctx, registryFiber }
+}
+
+function provideTitleService(
+  ctx: Context,
+  get: ReturnType<typeof vi.fn>,
+): { dispose: () => void; refresh: ReturnType<typeof vi.fn>; register: ReturnType<typeof vi.fn> } {
+  const refresh = vi.fn()
+  const register = vi.fn()
+  const dispose = ctx.provide('sessionTitle', { get, refresh, register })
+  return { dispose, refresh, register }
 }
 
 async function mountFleet(ctx: Context, config: Config = TEST_CONFIG) {
@@ -327,7 +337,7 @@ describe('Fleet L1 behavior', () => {
     expect(root.steer).not.toHaveBeenCalled()
   })
 
-  it('11. uses configured default/max tail sizes and text truncation', async () => {
+  it('11. reports omitted candidates separately from per-message text truncation', async () => {
     const { ctx } = await createHarness()
     const root = createStubAgent(ctx, 'root')
     appendTurn(root.session, '123456789', 'abcdefghij')
@@ -335,15 +345,32 @@ describe('Fleet L1 behavior', () => {
       content: [{ type: 'text', text: 'third-message' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    root.session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: CallId('tool-call'),
+        content: [{ type: 'text', text: 'ignored tool output' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
     register(ctx, root)
 
     const defaultView = ctx.fleet.inspect('root')
-    expect(defaultView.tailMessages.map(message => [message.role, message.text])).toEqual([
-      ['assistant', 'abcde'],
-      ['user', 'third'],
+    expect(defaultView.omittedMessages).toBe(1)
+    expect(defaultView.tailMessages.map(message => [message.role, message.text, message.textTruncated])).toEqual([
+      ['assistant', 'abcde', true],
+      ['user', 'third', true],
     ])
+    expect(defaultView.tailMessages).not.toContainEqual(expect.objectContaining({ text: 'ignored' }))
     const clampedView = ctx.fleet.inspect('root', { tailMessages: 99 })
-    expect(clampedView.tailMessages.map(message => message.text)).toEqual(['12345', 'abcde', 'third'])
+    expect(clampedView.omittedMessages).toBe(0)
+    expect(clampedView.tailMessages.map(message => [message.text, message.textTruncated])).toEqual([
+      ['12345', true], ['abcde', true], ['third', true],
+    ])
+    const limitedView = ctx.fleet.inspect('root', { tailMessages: 1 })
+    expect(limitedView.omittedMessages).toBe(2)
+    expect(limitedView.tailMessages).toEqual([expect.objectContaining({ text: 'third', textTruncated: true })])
     expect(() => ctx.fleet.inspect('root', { tailMessages: 0 })).toThrow('tailMessages must be a positive integer')
     expect(() => ctx.fleet.inspect('root', { tailMessages: 1.5 })).toThrow('tailMessages must be a positive integer')
     expect('session' in clampedView).toBe(false)
@@ -351,7 +378,61 @@ describe('Fleet L1 behavior', () => {
     expect(() => JSON.stringify(clampedView)).not.toThrow()
   })
 
-  it('12. keeps root created/status/disposed classification after registry removal', async () => {
+  it('12. reads only an existing title from the optional exact Session service', async () => {
+    const { ctx } = await createHarness()
+    const root = createStubAgent(ctx, 'root')
+    register(ctx, root)
+    const get = vi.fn((session: Session) => session === root.session ? { title: 'Build Fleet' } : undefined)
+    const title = provideTitleService(ctx, get)
+
+    expect(ctx.fleet.list()).toEqual([expect.objectContaining({ sessionId: 'root', title: 'Build Fleet' })])
+    expect(ctx.fleet.inspect('root')).toEqual(expect.objectContaining({
+      sessionId: 'root', title: 'Build Fleet', omittedMessages: 0,
+    }))
+    expect(get).toHaveBeenCalledWith(root.session)
+    expect(title.refresh).not.toHaveBeenCalled()
+    expect(title.register).not.toHaveBeenCalled()
+  })
+
+  it('13. omits title when no logged title exists and survives optional service unload/reload', async () => {
+    const { ctx } = await createHarness()
+    const root = createStubAgent(ctx, 'root')
+    register(ctx, root)
+    const firstGet = vi.fn(() => undefined)
+    const first = provideTitleService(ctx, firstGet)
+
+    expect(ctx.fleet.list()[0]).not.toHaveProperty('title')
+    first.dispose()
+    expect(ctx.fleet.list()[0]).not.toHaveProperty('title')
+    const secondGet = vi.fn(() => ({ title: 'Recovered title' }))
+    provideTitleService(ctx, secondGet)
+    expect(ctx.fleet.list()[0]).toEqual(expect.objectContaining({ title: 'Recovered title' }))
+    expect(secondGet).toHaveBeenCalledWith(root.session)
+  })
+
+  it('14. keeps equal titles out of ordering and exact-target authorization', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'caller')
+    const target = createStubAgent(ctx, 'target')
+    register(ctx, caller, target)
+    const get = vi.fn(() => ({ title: 'Same title' }))
+    provideTitleService(ctx, get)
+
+    expect(ctx.fleet.list().map(view => [view.sessionId, view.title])).toEqual([
+      ['caller', 'Same title'],
+      ['target', 'Same title'],
+    ])
+    const targetRef = ctx.fleet.listTargets({ callerSessionId: 'caller' })
+      .find(view => view.sessionId === 'target')?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    const selection = ctx.fleet.inspectTarget(targetRef, { callerSessionId: 'caller' }).selection
+    if (selection === undefined) throw new Error('missing target selection')
+    ctx.fleet.sendSelected(selection.handle, 'target only', { callerSessionId: 'caller' })
+    expect(target.followup).toHaveBeenCalledOnce()
+    expect(caller.followup).not.toHaveBeenCalled()
+  })
+
+  it('15. keeps root created/status/disposed classification after registry removal', async () => {
     const { ctx, fleetFiber } = await createHarness()
     const root = createStubAgent(ctx, 'root', { origin: 'subagent', parentSessionId: 'durable-parent' })
     const first: string[] = []
@@ -385,7 +466,7 @@ describe('Fleet L1 behavior', () => {
     expect(second).toHaveLength(4)
   })
 
-  it('13. keeps metadata-free child created/status/disposed classification after registry removal', async () => {
+  it('16. keeps metadata-free child created/status/disposed classification after registry removal', async () => {
     const { ctx } = await createHarness(TEST_CONFIG, true)
     const owner = createStubAgent(ctx, 'owner')
     const child = createStubAgent(ctx, 'child')
@@ -409,7 +490,7 @@ describe('Fleet L1 behavior', () => {
     ])
   })
 
-  it('14. preserves the created classification when an earlier listener requests immediate detach', async () => {
+  it('17. preserves the created classification when an earlier listener requests immediate detach', async () => {
     const { ctx } = await createRegistryHarness()
     const root = createStubAgent(ctx, 'root', { origin: 'subagent', parentSessionId: 'durable-parent' })
     let detach: (() => void) | undefined
@@ -429,7 +510,7 @@ describe('Fleet L1 behavior', () => {
     expect(seen).toEqual(['created:root', 'disposed:root'])
   })
 
-  it('15. seeds already-live root and child classifications without synthetic created events', async () => {
+  it('18. seeds already-live root and child classifications without synthetic created events', async () => {
     const { ctx } = await createRegistryHarness(true)
     const root = createStubAgent(ctx, 'root', { origin: 'subagent', parentSessionId: 'durable-parent' })
     const child = createStubAgent(ctx, 'child')
@@ -458,7 +539,7 @@ describe('Fleet L1 behavior', () => {
     ])
   })
 
-  it('16. isolates a same-id replacement from stale disposal by exact Agent identity', async () => {
+  it('19. isolates a same-id replacement from stale disposal by exact Agent identity', async () => {
     const { ctx } = await createRegistryHarness()
     const owner = createStubAgent(ctx, 'owner')
     const oldChild = createStubAgent(ctx, 'same')
@@ -510,7 +591,7 @@ describe('Fleet L1 behavior', () => {
     expect(seen.at(-1)).toBe('disposed:root:durable-parent')
   })
 
-  it('17. confirms one exact target through caller-bound references and a single-use selection', async () => {
+  it('20. confirms one exact target through caller-bound references and a single-use selection', async () => {
     const { ctx } = await createHarness()
     const caller = createStubAgent(ctx, 'caller-session')
     const target = createStubAgent(ctx, 'target-session-with-an-opaque-id')
@@ -569,7 +650,7 @@ describe('Fleet L1 behavior', () => {
     )
   })
 
-  it('18. allows self and delegated inspection without issuing a write selection', async () => {
+  it('21. allows self and delegated inspection without issuing a write selection', async () => {
     const { ctx } = await createHarness(TEST_CONFIG, true)
     const caller = createStubAgent(ctx, 'caller')
     const child = createStubAgent(ctx, 'child')
@@ -589,7 +670,7 @@ describe('Fleet L1 behavior', () => {
     })
   })
 
-  it('19. invalidates submitted references on caller mismatch and exposes fail-closed metadata', async () => {
+  it('22. invalidates submitted references on caller mismatch and exposes fail-closed metadata', async () => {
     const { ctx } = await createHarness()
     const caller = createStubAgent(ctx, 'caller')
     const other = createStubAgent(ctx, 'other')
@@ -632,7 +713,7 @@ describe('Fleet L1 behavior', () => {
     expect(target.followup).not.toHaveBeenCalled()
   })
 
-  it('20. invalidates references and selections across exact caller or target replacement', async () => {
+  it('23. invalidates references and selections across exact caller or target replacement', async () => {
     const { ctx } = await createHarness()
     const caller = createStubAgent(ctx, 'caller')
     const oldTarget = createStubAgent(ctx, 'same-target')
@@ -669,7 +750,7 @@ describe('Fleet L1 behavior', () => {
     expect(newTarget.followup).not.toHaveBeenCalled()
   })
 
-  it('21. expires target references and selections at the configured boundary', async () => {
+  it('24. expires target references and selections at the configured boundary', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)
     const { ctx } = await createHarness()
@@ -700,7 +781,7 @@ describe('Fleet L1 behavior', () => {
     expect(target.followup).not.toHaveBeenCalled()
   })
 
-  it('22. preserves a selection after input rejection but consumes it before an uncertain Agent call', async () => {
+  it('25. preserves a selection after input rejection but consumes it before an uncertain Agent call', async () => {
     const { ctx } = await createHarness()
     const caller = createStubAgent(ctx, 'caller')
     const target = createStubAgent(ctx, 'target')
@@ -734,7 +815,7 @@ describe('Fleet L1 behavior', () => {
     )
   })
 
-  it('23. bounds live selections per caller by evicting the oldest handle', async () => {
+  it('26. bounds live selections per caller by evicting the oldest handle', async () => {
     const { ctx } = await createHarness()
     const caller = createStubAgent(ctx, 'caller')
     const target = createStubAgent(ctx, 'target')

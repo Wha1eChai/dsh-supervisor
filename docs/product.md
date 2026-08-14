@@ -41,7 +41,7 @@ Web / Electron / transport 未来可选 Consumer 或产品面
 
 ## 要解决的问题
 
-多个 live Session 在同一个 DSH runtime 中并行时，需要能发现彼此，并使用明确、稳定的标识完成模型驱动的跨 Session 通信。Fleet 当前补的是这一进程内 Service 和工具层。
+多个 live Session 在同一个 DSH runtime 中并行时，需要能发现彼此，并使用明确、稳定的标识完成模型驱动的跨 Session 通信。Fleet 当前补的是这一进程内 Service 和工具层。可选的 log-backed session title 只增强发现和 inspect 的展示，不增加标题生成能力，也不改变 Fleet 的 live scope。
 
 官方对话 UI 不是当前实现面。本包目前不提供多 Session Web UI、Session 管理列表、远程 Web 服务或桌面应用；任何 UI 都是未来 Consumer。
 
