@@ -19,7 +19,7 @@ L2 不改变 `FleetService` 的 delegated 写入约定。`ctx.subagents.followup
 
 两个入口都是 Loader-safe namespace plugin，不导出 `default`。
 
-初始 L2 Bundle 曾把 Provider 与 Consumer 作为两个 host row 插入。当前 agent-preset 架构下，Bundle 只插入 host-plane Provider；部署者把 `@wha1echai/dsh-supervisor/tool` 加入 intended Agent 的 preset composition（或不使用 preset 的 legacy host composition）。Consumer row 依赖 `tools` / `fleet`，因此 Provider 或 ToolRuntime 不可用时由 Cordis 保持 pending；Provider 被替换时 Consumer 自动卸载并重载。ToolRuntime 按注册 context 的 scope 只向该 composition 及其后代暴露工具。
+Bundle patch 插入 Provider 与采用安全 `read-only` 默认值的核心 Consumer row。Write mode 通过 profile 或 intended Agent composition 覆盖完整 Consumer row；可选 `reply-job` 不属于该默认 Bundle。Consumer row 依赖 `tools` / `fleet`，因此 Provider 或 ToolRuntime 不可用时由 Cordis 保持 pending；Provider 被替换时 Consumer 自动卸载并重载。Consumer 挂在 scoped composition 时，ToolRuntime 按注册 context 的 scope 只向该 composition 及其后代暴露工具。
 
 ## 配置
 

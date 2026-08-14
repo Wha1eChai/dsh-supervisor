@@ -28,6 +28,8 @@ describe('package entry point', () => {
       '- insert:',
       '    - id: dsh-supervisor',
       "      name: '@wha1echai/dsh-supervisor'",
+      '    - id: dsh-supervisor-tools',
+      "      name: '@wha1echai/dsh-supervisor/tool'",
       '',
     ].join('\n'))
   })

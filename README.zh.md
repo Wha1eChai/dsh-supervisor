@@ -126,21 +126,18 @@ allowBuilds:
 
 ## 使用
 
-Bundle 只安装 host-plane Fleet Provider。核心工具 Consumer 和可选 reply-job Consumer 应挂在需要这些能力的 Agent composition 中，避免向 sibling preset 暴露 Fleet 工具。对于尚未使用 preset 的 host composition，则把同样的行加入对应 profile。
+Bundle 会安装 host-plane Fleet Provider，以及采用安全 `read-only` 默认值的核心工具 Consumer，暴露 `fleet_list` 和 `fleet_inspect`。Bundle 不安装可选 reply-job Consumer。需要 `fleet_wait` 时，把 `@wha1echai/dsh-supervisor/reply-job` 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；scoped ToolRuntime 注册会把该可选工具限制在指定 composition 内。
+
+如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-supervisor-tools` 行：
 
 ```yaml
 - id: dsh-supervisor-tools
   name: '@wha1echai/dsh-supervisor/tool'
   config:
     controlMode: message # read-only | message | full
-
-- id: dsh-supervisor-reply-job
-  name: '@wha1echai/dsh-supervisor/reply-job'
 ```
 
-核心 Consumer 的安全默认值暴露 `fleet_list` 和 `fleet_inspect`。只有 composition 挂载可选 reply-job Consumer 且能解析 public Jobs seam 时才会出现 `fleet_wait`；实际启动 job 还要求 owner 的 composition 挂载官方 Jobs controller Consumer。它只能消费已启用 `fleet_send` 返回的 reply receipt。
-
-如需改变消息或取消工具可见性，在完整的 `dsh-supervisor-tools` 行上设置 `controlMode`。只有在明确允许模型取消其他 root Session 的 composition 中才使用 `full`。`controlMode` 只选择工具可见性，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()` 策略。
+`fleet_wait` 只能消费已启用 `fleet_send` 返回的 reply receipt；实际启动 job 还要求 owner 的 composition 挂载官方 Jobs controller Consumer。只有在明确允许模型取消其他 root Session 的 composition 中才使用 `full`。`controlMode` 只选择工具可见性，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()` 策略。
 
 其他插件也可以把 `fleet` 声明为必需服务，直接消费 Fleet：
 

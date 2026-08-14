@@ -168,7 +168,7 @@ Provider 为 exact Agent 对象缓存已观察到的 runtime classification，�
 
 ## 组合
 
-插件声明 `dsh.bundle.patch`。patch **只 insert host-plane Provider row**，不整行替换官方 bundle config。模型 Consumer 不由 Bundle 全局插入；部署者把 `./tool` 和可选 `./reply-job` 行加入需要 Fleet 能力的 agent preset composition（或不使用 preset 的 legacy host composition）。
+插件声明 `dsh.bundle.patch`。patch **只 insert repository-owned rows**，不整行替换官方 bundle config。Bundle 插入 host-plane Provider 与安全 `read-only` 核心 Consumer；可选 `./reply-job` 不由 Bundle 全局插入，部署者把它加入需要 `fleet_wait` 的 host/preset composition。
 
 当前调试宿主是现有 `web` profile。它不表示插件提供 remote Web 或 supervisor UI；独立 `supervisor` profile 属于未来 L4+。
 

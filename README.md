@@ -126,21 +126,18 @@ Review the source and pin a commit before granting install-time execution permis
 
 ## Usage
 
-The Bundle installs only the host-plane Fleet Provider. Mount the core tool Consumer and optional reply-job Consumer in the agent composition that should receive them. This avoids exposing Fleet tools to sibling presets. For a pre-preset host composition, add the same rows to that profile instead.
+The Bundle installs the host-plane Fleet Provider and the core tool Consumer at its safe `read-only` default, exposing `fleet_list` and `fleet_inspect`. It does not install the optional reply-job Consumer. Mount `@wha1echai/dsh-supervisor/reply-job` in the same host or agent-preset composition as the official Jobs Consumer when `fleet_wait` is intended; scoped ToolRuntime registration keeps that optional tool inside the selected composition.
+
+To enable message or cancellation tools, override the complete `dsh-supervisor-tools` row in the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: dsh-supervisor-tools
   name: '@wha1echai/dsh-supervisor/tool'
   config:
     controlMode: message # read-only | message | full
-
-- id: dsh-supervisor-reply-job
-  name: '@wha1echai/dsh-supervisor/reply-job'
 ```
 
-The core Consumer's safe default exposes `fleet_list` and `fleet_inspect`. `fleet_wait` appears only in compositions that mount the optional reply-job Consumer and can resolve the public Jobs seam; starting its job additionally requires an official Jobs controller Consumer in the owner's composition. It can consume only a reply receipt returned by enabled `fleet_send`.
-
-Set `controlMode` on the complete `dsh-supervisor-tools` row to change message or cancellation visibility. Use `full` only in a composition where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
+`fleet_wait` can consume only a reply receipt returned by enabled `fleet_send`; starting its job also requires an official Jobs controller Consumer in the owner's composition. Use `full` only in a composition where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
 
 Other plugins may consume Fleet directly by declaring `fleet` as a required service:
 
