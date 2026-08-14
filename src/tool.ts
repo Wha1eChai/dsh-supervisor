@@ -201,6 +201,7 @@ export function apply(ctx: Context, config: Config): void {
       async execute(args, exec) {
         if (exec.agent === undefined) throw new Error('fleet_list requires an owning agent session')
         const agents = ctx.fleet.listTargets({
+          callerAgent: exec.agent,
           callerSessionId: exec.agent.session.id,
           ...(args.roots_only === undefined ? {} : { rootsOnly: args.roots_only }),
           ...(args.running_only === undefined ? {} : { runningOnly: args.running_only }),
@@ -230,6 +231,7 @@ export function apply(ctx: Context, config: Config): void {
         const targetRef = handle(args.target_ref, 'target_ref')
         const tail = tailMessages(args.tail_messages)
         return ctx.fleet.inspectTarget(targetRef, {
+          callerAgent: exec.agent,
           callerSessionId: exec.agent.session.id,
           ...(tail === undefined ? {} : { tailMessages: tail }),
         })
@@ -269,6 +271,7 @@ export function apply(ctx: Context, config: Config): void {
           const selectionHandle = handle(args.selection_handle, 'selection_handle')
           requireText(args.text)
           return ctx.fleet.sendSelected(selectionHandle, args.text, {
+            callerAgent: exec.agent,
             callerSessionId: exec.agent.session.id,
           })
         },
@@ -303,6 +306,7 @@ export function apply(ctx: Context, config: Config): void {
           const selectionHandle = handle(args.selection_handle, 'selection_handle')
           requireText(args.text)
           return ctx.fleet.steerSelected(selectionHandle, args.text, {
+            callerAgent: exec.agent,
             callerSessionId: exec.agent.session.id,
           })
         },
@@ -338,6 +342,7 @@ export function apply(ctx: Context, config: Config): void {
           if (exec.agent === undefined) throw new Error('fleet_cancel requires an owning agent session')
           const selectionHandle = handle(args.selection_handle, 'selection_handle')
           return ctx.fleet.cancelSelected(selectionHandle, {
+            callerAgent: exec.agent,
             callerSessionId: exec.agent.session.id,
             ...(args.keep_inbox === undefined ? {} : { keepInbox: args.keep_inbox }),
           })

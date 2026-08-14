@@ -46,7 +46,7 @@ export abstract class FleetService extends Service {
 
   /**
    * Issue caller-bound references for live targets.
-   * @param options - owning caller identity and optional live-target filters.
+   * @param options - exact owning caller Agent and optional live-target filters.
    * @returns JSON-safe target views with expiring opaque references.
    */
   abstract listTargets(options: FleetTargetListOptions): FleetTargetView[]
@@ -54,7 +54,7 @@ export abstract class FleetService extends Service {
   /**
    * Inspect one target reference and issue a write selection when current policy permits it.
    * @param targetRef - opaque caller-bound reference returned by `listTargets`.
-   * @param options - owning caller identity and transcript bound.
+   * @param options - exact owning caller Agent and transcript bound.
    * @returns the inspected Agent view and an optional single-attempt selection.
    */
   abstract inspectTarget(targetRef: string, options: FleetTargetInspectOptions): FleetTargetInspectView
@@ -63,7 +63,7 @@ export abstract class FleetService extends Service {
    * Queue a follow-up through one single-attempt confirmed target selection.
    * @param selectionHandle - opaque selection returned by `inspectTarget`.
    * @param text - non-empty follow-up text.
-   * @param options - owning caller identity.
+   * @param options - exact owning caller Agent.
    * @returns exact target Session identity, created message identity, and opaque delivery identity.
    */
   abstract sendSelected(
@@ -76,7 +76,7 @@ export abstract class FleetService extends Service {
    * Submit steering through one single-attempt confirmed target selection.
    * @param selectionHandle - opaque selection returned by `inspectTarget`.
    * @param text - non-empty steering text.
-   * @param options - owning caller identity.
+   * @param options - exact owning caller Agent.
    * @returns exact target Session identity, created message identity, and opaque delivery identity.
    */
   abstract steerSelected(
@@ -88,7 +88,7 @@ export abstract class FleetService extends Service {
   /**
    * Cancel through one single-attempt confirmed target selection.
    * @param selectionHandle - opaque selection returned by `inspectTarget`.
-   * @param options - owning caller identity and optional inbox preservation.
+   * @param options - exact owning caller Agent and optional inbox preservation.
    * @returns exact target Session identity and accepted cancellation state.
    */
   abstract cancelSelected(

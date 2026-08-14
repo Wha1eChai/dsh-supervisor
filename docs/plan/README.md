@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**L2.4 已完成**：confirmed-target selected `send` / `steer` 现在使用 Provider 生成的 versioned `fleet-relay` source，exact caller Agent 提供 sender，Provider 生成 opaque delivery correlation；direct API 保持 plugin attribution。正文、receipt、inspect projection、durability 和 fail-closed 边界已通过 keyless 验收。
+**L2.4 已完成**：confirmed-target selected `send` / `steer` 现在使用 Provider 生成的 versioned `fleet-relay` source，ToolRuntime 提供的 exact caller Agent 提供 sender，Provider 生成 opaque delivery correlation；direct API 保持 plugin attribution。正文、receipt、inspect projection、durability 和 fail-closed 边界已通过 keyless 验收。
 
 **L2.3 已完成**：Fleet 的 live Agent 视图可机会式读取可选 `sessionTitle` 服务中 exact Session 已记录的标题，并为 inspect 分开报告 tail omission 与每条消息文本截断。标题服务缺失、卸载或没有已记录标题时不影响 Fleet；标题不参与 identity、routing、selection、排序、过滤或授权。关键输出已通过 keyless 单测、工具 schema/render、可选服务卸载、真实 Loader composition 和构建产物回归。
 

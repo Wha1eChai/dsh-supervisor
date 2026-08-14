@@ -16,7 +16,7 @@
 }
 ```
 
-`senderSessionId` 只从 selection 中保存的 exact caller Agent 的 Session 派生。工具 schema、direct `callerSessionId` 字符串、target reference、selection handle、标题和正文都不能提供或覆盖 sender。`deliveryId` 是 Provider 生成的 opaque branded identity，既用于 durable source，也用于 selected write receipt；它只用于 correlation 和 observability，不用于授权。
+`senderSessionId` 只从 selection 中保存的 exact caller Agent 的 Session 派生。Confirmed-target Service options 必须携带 ToolRuntime 提供的 exact caller Agent；`callerSessionId` 只是同一 exact object 的一致性校验，不能单独授予归因。工具 schema、direct `callerSessionId` 字符串、target reference、selection handle、标题和正文都不能提供或覆盖 sender。`deliveryId` 是 Provider 生成的 opaque branded identity，既用于 durable source，也用于 selected write receipt；它只用于 correlation 和 observability，不用于授权。
 
 Direct `send` / `steer` 继续使用：
 
@@ -53,6 +53,8 @@ Selected `send` / `steer` 返回：
 `sessionId` 与 `messageId` 继续来自 exact target 和 created `UserMessage`。Receipt 只表示 `followup()` 或 `steer()` 同步接受进入 Agent inbox，不表示 claim、turn 完成或 assistant reply；steer 也不获得独立的 reply 语义。
 
 Inspect 只在消息 source 精确匹配 `fleet-relay` 时投影窄 `relay` 字段，包含 version、form、senderSessionId 和 deliveryId。它不投影 target reference、selection handle、标题、Agent 对象或 raw source。正文摘要保留实际 model-visible 文本，不通过解析 header 去除 body。
+
+`deliveryId` 是观测和 correlation identity，不是授权凭据；receipt 不代表 claim、turn completion 或 assistant reply，selected steer 也不获得独立 reply 语义。
 
 完整 relay 已包含在现有 `user/message` durability 中，不新增 Fleet Session event，也不修改 Session format version。Provider 不持久化 target reference 或 selection handle；它们只存在于 transient Provider state 和既有工具调用参数记录中。
 

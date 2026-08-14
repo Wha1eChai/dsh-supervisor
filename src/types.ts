@@ -1,4 +1,4 @@
-import type { AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { FleetDeliveryId } from './relay.js'
 
@@ -18,8 +18,11 @@ export interface FleetCallerOptions {
   callerSessionId?: string
 }
 
-/** Required caller identity for Provider-owned target confirmation. */
+/** Exact live caller capability required for Provider-owned target confirmation. */
 export interface FleetRequiredCallerOptions {
+  /** Exact Agent object supplied by the owning ToolRuntime execution. */
+  callerAgent: Agent
+  /** Session id used only to locate and cross-check the exact Agent object. */
   callerSessionId: string
 }
 

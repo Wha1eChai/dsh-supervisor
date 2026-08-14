@@ -140,7 +140,7 @@ export class InProcessFleetProvider extends FleetService {
   /** Issue caller-bound short-lived references for live targets. */
   listTargets(options: FleetTargetListOptions): FleetTargetView[] {
     this.requireActive()
-    const caller = this.requireCaller(options.callerSessionId)
+    const caller = this.requireCaller(options.callerAgent, options.callerSessionId)
     const now = Date.now()
     this.pruneExpired(now)
     const agents = this.ctx.agents.list()
@@ -164,7 +164,7 @@ export class InProcessFleetProvider extends FleetService {
     this.requireActive()
     const now = Date.now()
     this.pruneExpired(now)
-    const record = this.requireTargetReference(targetRef, options.callerSessionId)
+    const record = this.requireTargetReference(targetRef, options.callerAgent, options.callerSessionId)
     const agent = this.inspectAgent(record.targetAgent, options)
     if (record.callerAgent === record.targetAgent || agent.kind !== 'root') return { agent }
     return { agent, selection: this.issueSelection(record, now) }
@@ -178,7 +178,7 @@ export class InProcessFleetProvider extends FleetService {
   ): FleetDeliveryReceipt {
     this.requireActive()
     validateMessageText(text)
-    const record = this.requireSelection(selectionHandle, options.callerSessionId)
+    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
     const agent = this.requireWritableSelected(record)
     const message = createFleetRelayMessage(text, record.callerAgent)
     this.selections.delete(selectionHandle)
@@ -194,7 +194,7 @@ export class InProcessFleetProvider extends FleetService {
   ): FleetDeliveryReceipt {
     this.requireActive()
     validateMessageText(text)
-    const record = this.requireSelection(selectionHandle, options.callerSessionId)
+    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
     const agent = this.requireWritableSelected(record)
     const message = createFleetRelayMessage(text, record.callerAgent)
     this.selections.delete(selectionHandle)
@@ -208,7 +208,7 @@ export class InProcessFleetProvider extends FleetService {
     options: FleetSelectedCancelOptions,
   ): { sessionId: string; accepted: true } {
     this.requireActive()
-    const record = this.requireSelection(selectionHandle, options.callerSessionId)
+    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
     const agent = this.requireWritableSelected(record)
     this.selections.delete(selectionHandle)
     agent.cancel({ kind: 'hook', reason: 'fleet-cancel' }, { keepInbox: options.keepInbox })
@@ -288,12 +288,12 @@ export class InProcessFleetProvider extends FleetService {
   }
 
   /** Resolve an exact live caller before issuing or using confirmed-target state. */
-  private requireCaller(callerSessionId: string): Agent {
+  private requireCaller(callerAgent: Agent, callerSessionId: string): Agent {
     const caller = this.ctx.agents.get(SessionId(callerSessionId))
-    if (caller === undefined) {
+    if (caller !== callerAgent) {
       throw new FleetError(
         'fleet-caller-unavailable',
-        'fleet-caller-unavailable: the owning Fleet session is not live. No action was taken. '
+        'fleet-caller-unavailable: the owning Fleet session is not the exact live Agent. No action was taken. '
           + 'Do not substitute another Fleet session. Relist or ask the user.',
       )
     }
@@ -333,10 +333,10 @@ export class InProcessFleetProvider extends FleetService {
   }
 
   /** Resolve one caller-bound target reference and invalidate mismatched submissions. */
-  private requireTargetReference(targetRef: string, callerSessionId: string): TargetRecord {
+  private requireTargetReference(targetRef: string, callerAgent: Agent, callerSessionId: string): TargetRecord {
     const record = this.targetReferences.get(targetRef)
     if (record === undefined) throw invalidTargetReference()
-    const caller = this.requireCaller(callerSessionId)
+    const caller = this.requireCaller(callerAgent, callerSessionId)
     if (record.callerSessionId !== callerSessionId || record.callerAgent !== caller) {
       this.targetReferences.delete(targetRef)
       throw invalidTargetReference()
@@ -366,14 +366,14 @@ export class InProcessFleetProvider extends FleetService {
   }
 
   /** Resolve one single-attempt selection and invalidate mismatched submissions. */
-  private requireSelection(selectionHandle: string, callerSessionId: string): SelectionRecord {
+  private requireSelection(selectionHandle: string, callerAgent: Agent, callerSessionId: string): SelectionRecord {
     const now = Date.now()
     this.pruneExpired(now)
     const record = this.selections.get(selectionHandle)
     if (record === undefined) throw invalidSelection()
     let caller: Agent
     try {
-      caller = this.requireCaller(callerSessionId)
+      caller = this.requireCaller(callerAgent, callerSessionId)
     } catch (error) {
       this.selections.delete(selectionHandle)
       throw error

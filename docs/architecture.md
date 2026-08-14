@@ -131,7 +131,7 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 `sessionId` 仍是当前 runtime 内的 canonical routing identifier，direct Service API 继续使用它。模型工具不再跨调用提交 `sessionId`：`fleet_list` 为 owning caller 签发 `targetRef`，`fleet_inspect` 用它确认 exact target 并按当前写策略签发 `selectionHandle`，写工具只接受 selection。
 
-两类 handle 都只存在于 Provider 内部，并绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry。使用时再次核对 registry 的 exact-object identity；caller/target replacement、disposal、expiry、unload 或 mismatch 都失效。Selection 在 Agent 副作用前 single-attempt 消费。
+两类 handle 都只存在于 Provider 内部，并绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry。Confirmed-target Service options 必须携带 ToolRuntime 提供的 exact caller Agent；`callerSessionId` 只是与该对象的交叉校验。使用时再次核对 registry 的 exact-object identity；caller/target replacement、disposal、expiry、unload 或 mismatch 都失效。Selection 在 Agent 副作用前 single-attempt 消费。
 
 `sessionId` 在当前 DSH runtime 范围内稳定。未来任何 Session-list UI 必须展示它并提供复制操作；当前包没有该 UI。若未来支持多个 runtime，必须另行增加 runtime namespace 或等价寻址机制，不能假定当前 `sessionId` 已是全局 remote address。
 

@@ -118,7 +118,7 @@ ctx.fleet.cancelSelected(selectionHandle, options)
 - 当前 Provider instance；
 - expiry。
 
-每次使用都重新检查 `ctx.agents.get(id) === exactAgent`。Caller/target disposal、同 ID replacement、expiry、caller mismatch、Provider unload 和重复 selection 使用都会 fail closed。Provider unload 后 retained Service reference 不读取 AgentRegistry。
+每次使用都重新检查 `ctx.agents.get(id) === exactAgent`。Confirmed-target options 还必须携带 ToolRuntime 提供的 exact caller Agent；`callerSessionId` 只是与该对象的交叉校验，不能单独授予归因。Caller/target disposal、同 ID replacement、expiry、caller mismatch、Provider unload 和重复 selection 使用都会 fail closed。Provider unload 后 retained Service reference 不读取 AgentRegistry。
 
 Direct `send` / `steer` 的消息来源固定为：
 

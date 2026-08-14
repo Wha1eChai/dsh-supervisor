@@ -44,7 +44,7 @@ Consumer 仍只依赖 `ctx.fleet`。只有 Provider 持有 exact Agent identity�
 
 `target_ref` 和 `selection_handle` 都绑定：
 
-- owning caller 的 exact Agent 对象与 `callerSessionId`；
+- owning caller 的 exact Agent 对象与 `callerSessionId`；确认 lane 的 Service options 必须同时携带 exact Agent，字符串 id 只作一致性校验；
 - target 的 exact Agent 对象与原始 `sessionId`；
 - 当前 Provider 实例；
 - expiry。

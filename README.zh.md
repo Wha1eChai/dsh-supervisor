@@ -53,7 +53,7 @@ confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-rel
 
 可信程序化 Consumer 的 direct Service API 继续以 `sessionId` 作为当前 runtime 内的稳定路由标识。Selected write receipt 增加 opaque `deliveryId`，只表示 inbox 接受，不表示完成或 reply。模型工具改用 confirmed-target protocol：`fleet_list` 返回 caller-bound `targetRef`，`fleet_inspect` 接受该 reference，并可能签发 exact-Agent-bound、single-attempt 的 `selectionHandle`；写工具只接受 selection。无效、过期、caller mismatch、Agent replacement、Provider unload 或已使用的 handle 都 fail closed，绝不授权替换为其他 Session。每个 Agent view 仍包含 `sessionId`；未来任何 Session-list UI 都必须显示它并提供复制操作。
 
-`controlMode` 默认是 `read-only`。五个 confirmed-target 工具都只从 owning Agent Session 派生 caller identity，没有 owning Agent 时直接失败；写授权继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
+`controlMode` 默认是 `read-only`。五个 confirmed-target 工具都把 owning Agent 的 exact object 传给 Provider，并从它派生 Session id 做交叉校验；模型字段不能提供 caller identity，没有 owning Agent 时直接失败。写授权继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
 
 挂载可选的 `sessionTitle` 服务后，Fleet 只从 exact live Session 读取日志中已经记录的标题，并把它作为 list/inspect 的展示字段。标题服务缺失或卸载时 Fleet 仍可用，只省略 `title`；标题不影响 identity、routing、selection、顺序、过滤或授权。Inspect 另外报告 tail limit 省略的消息数和每条消息的 `textTruncated` 事实。
 
