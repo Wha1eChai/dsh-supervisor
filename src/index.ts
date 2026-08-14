@@ -47,13 +47,13 @@ export const Config: Schema<Config> = Schema.object({
   maxReplyTextChars: positiveInteger(8000),
 })
 
-export const name = 'dsh-supervisor'
+export const name = 'dsh-cross-session'
 export const inject = ['agents']
 
 /** Mount the default replaceable in-process Fleet provider. */
 export function apply(ctx: Context, config: Config): void {
   if (config.defaultTailMessages > config.maxTailMessages) {
-    throw new Error('dsh-supervisor: defaultTailMessages must be less than or equal to maxTailMessages')
+    throw new Error('dsh-cross-session: defaultTailMessages must be less than or equal to maxTailMessages')
   }
   ctx.plugin(InProcessFleetProvider, config)
 }

@@ -4,7 +4,7 @@
 
 ## 目标
 
-在同一个 npm 包中增加独立入口 `@wha1echai/dsh-supervisor/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions`、`ctx.subagents` 或 `ctx.workflowEngine`。
+在同一个 npm 包中增加独立入口 `@wha1echai/dsh-cross-session/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions`、`ctx.subagents` 或 `ctx.workflowEngine`。
 
 L2 不改变 `FleetService` 的 delegated 写入约定。`ctx.subagents.followup()` 需要精确 live parent `Agent` 作为授权，现有 Fleet API 只有 JSON-safe caller id；该能力需要单独设计，不能由工具绕过 Service Definition。
 
@@ -13,8 +13,8 @@ L2 不改变 `FleetService` 的 delegated 写入约定。`ctx.subagents.followup
 ## 插件入口
 
 ```text
-@wha1echai/dsh-supervisor       Fleet Definition + 当前同进程 Provider
-@wha1echai/dsh-supervisor/tool  模型工具 Consumer
+@wha1echai/dsh-cross-session       Fleet Definition + 当前同进程 Provider
+@wha1echai/dsh-cross-session/tool  模型工具 Consumer
 ```
 
 两个入口都是 Loader-safe namespace plugin，不导出 `default`。
@@ -201,8 +201,8 @@ Canonical output：
 ```text
 @deepseek-ai/dsh-system-prompt
 @deepseek-ai/dsh-tools
-@wha1echai/dsh-supervisor
-@wha1echai/dsh-supervisor/tool
+@wha1echai/dsh-cross-session
+@wha1echai/dsh-cross-session/tool
 ```
 
 - 从构建后的 package exports 导入两个本包入口。

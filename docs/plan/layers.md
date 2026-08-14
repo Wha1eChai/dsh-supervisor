@@ -34,7 +34,7 @@ L6  daemon / 多 runtime Provider / 权限深化           未来
 
 ## L2 — 模型工具（已交付）
 
-`@wha1echai/dsh-supervisor/tool` 只注入 `fleet` 和 `tools`，按 `read-only` / `message` / `full` 安全模式注册 `fleet_list` / `fleet_inspect` / `fleet_send` / `fleet_steer` / `fleet_cancel`。模型不能提供 caller id；写工具从 owning Agent 派生，并继续由 Fleet 拒绝 self/delegated 写入。
+`@wha1echai/dsh-cross-session/tool` 只注入 `fleet` 和 `tools`，按 `read-only` / `message` / `full` 安全模式注册 `fleet_list` / `fleet_inspect` / `fleet_send` / `fleet_steer` / `fleet_cancel`。模型不能提供 caller id；写工具从 owning Agent 派生，并继续由 Fleet 拒绝 self/delegated 写入。
 
 Consumer 挂载控制模型可见性。已经 live 的 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前工具集合；不注入聊天消息，也不添加只用于能力广告的常驻 prompt prose。
 

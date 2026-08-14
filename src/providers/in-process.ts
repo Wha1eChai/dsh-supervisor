@@ -325,7 +325,7 @@ export class InProcessFleetProvider extends FleetService {
       ? this.config.defaultTailMessages
       : options.tailMessages
     if (!Number.isSafeInteger(requested) || requested <= 0) {
-      throw new RangeError('dsh-supervisor: tailMessages must be a positive integer')
+      throw new RangeError('dsh-cross-session: tailMessages must be a positive integer')
     }
     return Math.min(requested, this.config.maxTailMessages)
   }
@@ -733,7 +733,7 @@ export class InProcessFleetProvider extends FleetService {
     const kind = this.runtimeKinds.get(agent)
     if (kind === undefined) {
       // Provider seeding and agent/created must cache every exact Agent before its paired disposal.
-      throw new Error(`dsh-supervisor: missing runtime ownership classification for disposed agent "${agent.id}"`)
+      throw new Error(`dsh-cross-session: missing runtime ownership classification for disposed agent "${agent.id}"`)
     }
     const event: FleetEvent = { type: 'disposed', agent: this.project(agent, kind) }
     this.runtimeKinds.delete(agent)
@@ -794,7 +794,7 @@ function createFleetMessage(text: string) {
   validateMessageText(text)
   return createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: 'dsh-supervisor' },
+    source: { kind: 'plugin', plugin: 'dsh-cross-session' },
   })
 }
 
@@ -820,7 +820,7 @@ function validateMessageText(text: string): void {
 }
 
 function relaySource(message: UserMessage): { deliveryId: FleetDeliveryId } {
-  if (message.source.kind !== 'fleet-relay') throw new Error('dsh-supervisor: missing Fleet relay source')
+  if (message.source.kind !== 'fleet-relay') throw new Error('dsh-cross-session: missing Fleet relay source')
   return message.source
 }
 

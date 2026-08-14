@@ -1,13 +1,13 @@
 /**
  * Model-facing Fleet tool Consumer over the replaceable `ctx.fleet` service.
- * @module @wha1echai/dsh-supervisor/tool
+ * @module @wha1echai/dsh-cross-session/tool
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool, type GenericCallView } from '@deepseek-ai/dsh-tools'
 
-export const name = 'tool-dsh-supervisor'
+export const name = 'tool-dsh-cross-session'
 export const inject = ['tools', 'fleet']
 
 /** Deployment-level visibility for model-callable Fleet control tools. */

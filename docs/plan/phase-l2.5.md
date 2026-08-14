@@ -53,7 +53,7 @@ outcome: 'turn-ended' | 'discarded' | 'target-unavailable'
 
 ## Optional Jobs Consumer
 
-独立 `@wha1echai/dsh-supervisor/reply-job` 入口只注入 `tools` 与 `fleet`，并通过 `ctx.inject(['jobs'], ...)` 条件注册 `fleet_wait`：
+独立 `@wha1echai/dsh-cross-session/reply-job` 入口只注入 `tools` 与 `fleet`，并通过 `ctx.inject(['jobs'], ...)` 条件注册 `fleet_wait`：
 
 ```text
 fleet_wait(reply_receipt)

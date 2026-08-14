@@ -1,14 +1,14 @@
 # Fleet API 参考
 
-宿主进程通过主入口提供 `ctx.fleet`，独立 `@wha1echai/dsh-supervisor/tool` 入口把该服务暴露为模型工具。Consumer 必须注入 `fleet`，不得直接依赖 `ctx.agents`。
+宿主进程通过主入口提供 `ctx.fleet`，独立 `@wha1echai/dsh-cross-session/tool` 入口把该服务暴露为模型工具。Consumer 必须注入 `fleet`，不得直接依赖 `ctx.agents`。
 
 当前 Provider 只访问同一运行中 DSH runtime（即同一个 `dsh` 进程）的 live Agent。它不提供跨进程、跨终端或跨设备、本地到服务器、remote Web、gateway、daemon 或多 runtime 路由。
 
 ## 配置
 
 ```yaml
-- id: dsh-supervisor
-  name: '@wha1echai/dsh-supervisor'
+- id: dsh-cross-session
+  name: '@wha1echai/dsh-cross-session'
   config:
     defaultTailMessages: 8
     maxTailMessages: 32
@@ -39,7 +39,7 @@ Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最�
 
 ## 工具配置与发现
 
-独立 `dsh-supervisor-tools` row 默认 `controlMode: read-only`：
+独立 `dsh-cross-session-tools` row 默认 `controlMode: read-only`：
 
 | `controlMode` | 模型可见工具 |
 |---|---|
@@ -132,7 +132,7 @@ ctx.fleet.cancelSelected(selectionHandle, options)
 Direct `send` / `steer` 的消息来源固定为：
 
 ```ts
-{ kind: 'plugin', plugin: 'dsh-supervisor' }
+{ kind: 'plugin', plugin: 'dsh-cross-session' }
 ```
 
 Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source：
@@ -167,7 +167,7 @@ exact message id -> agent/inbox/claimed turn -> same-turn assistant/message -> t
 
 Abort 只停止 observation，不 cancel 或 steer target。结果可在 wait 注册前完成并短期保留一次；第二次观察、caller mismatch、expiry 或 stale receipt 返回 `fleet-reply-invalid`。
 
-可选 `@wha1echai/dsh-supervisor/reply-job` 在 `ctx.jobs` 挂载时注册：
+可选 `@wha1echai/dsh-cross-session/reply-job` 在 `ctx.jobs` 挂载时注册：
 
 ```text
 fleet_wait(reply_receipt) -> { jobId }

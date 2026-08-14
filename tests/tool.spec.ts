@@ -273,7 +273,7 @@ describe('Fleet tool namespace and configuration', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolPlugin) as Record<string, unknown>
     expect(unwrapped).toBe(toolPlugin)
-    expect(unwrapped.name).toBe('tool-dsh-supervisor')
+    expect(unwrapped.name).toBe('tool-dsh-cross-session')
     expect(unwrapped.inject).toEqual(['tools', 'fleet'])
     expect(new Set(toolPlugin.inject)).toEqual(new Set(['tools', 'fleet']))
     expect(toolPlugin.inject).toHaveLength(2)

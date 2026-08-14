@@ -1,6 +1,6 @@
 # 产品
 
-`dsh-supervisor` 当前首先解决同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供 **Fleet capability seam** 和模型可调用的 `fleet_*` 工具，让一个 live Session 观察或控制另一个 live Session。可信程序化 Consumer 使用稳定 `sessionId`；模型工具使用 Provider 签发的短期 target reference 和 write selection。
+`dsh-cross-session` 当前首先解决同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供 **Fleet capability seam** 和模型可调用的 `fleet_*` 工具，让一个 live Session 观察或控制另一个 live Session。可信程序化 Consumer 使用稳定 `sessionId`；模型工具使用 Provider 签发的短期 target reference 和 write selection。
 
 当前产品面是进程内 Service/API 和模型工具，不是第二个 harness、远程控制服务或多 Session UI。
 
@@ -49,7 +49,7 @@ Web / Electron / transport 未来可选 Consumer 或产品面
 
 模型可见能力由 profile 中实际挂载的 seam、Consumer 和当前 tool registry 决定：
 
-- 只有挂载 `@wha1echai/dsh-supervisor/tool` 才注册 `fleet_*`。
+- 只有挂载 `@wha1echai/dsh-cross-session/tool` 才注册 `fleet_*`。
 - Consumer 在 Session 已运行后挂载或重配时，该 Session 会在下一次模型请求中通过正常 ToolRuntime 组合看到当前工具集合。
 - 不插入 user、assistant 或其他聊天消息来通知模型。
 - 不增加只为广告工具存在而常驻的 system prompt prose。
@@ -90,7 +90,7 @@ Web / Electron / transport 未来可选 Consumer 或产品面
 
 ## 分发
 
-- 代码在本仓库，包名 `@wha1echai/dsh-supervisor`。
+- 代码在本仓库，包名 `@wha1echai/dsh-cross-session`。
 - 安装走 `dsh plugin --profile <name> add <path-or-spec>`。
 - 这是独立社区插件，不承诺 DeepSeek 官方采用。
 

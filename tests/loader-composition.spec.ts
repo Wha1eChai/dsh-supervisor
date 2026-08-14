@@ -62,7 +62,7 @@ function registerRoot(idText: string, received: UserMessage[] = []): () => void 
 
 describe('built package through real Loader composition', () => {
   it('loads both namespace entries, executes a real Fleet tool, and removes stale Consumers', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-supervisor-loader-'))
+    root = await mkdtemp(join(tmpdir(), 'dsh-cross-session-loader-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       '- id: system-prompt',
@@ -82,13 +82,13 @@ describe('built package through real Loader composition', () => {
       '- id: jobs',
       "  name: '@deepseek-ai/dsh-jobs-local'",
       '- id: supervisor',
-      "  name: '@wha1echai/dsh-supervisor'",
+      "  name: '@wha1echai/dsh-cross-session'",
       '- id: supervisor-tools',
-      "  name: '@wha1echai/dsh-supervisor/tool'",
+      "  name: '@wha1echai/dsh-cross-session/tool'",
       '  config:',
       '    controlMode: full',
       '- id: supervisor-reply-job',
-      "  name: '@wha1echai/dsh-supervisor/reply-job'",
+      "  name: '@wha1echai/dsh-cross-session/reply-job'",
       '',
     ].join('\n'))
 
@@ -105,14 +105,14 @@ describe('built package through real Loader composition', () => {
         if (specifier === '@deepseek-ai/dsh-jobs-local') return LocalJobRegistry
         if (specifier === '@deepseek-ai/dsh-session') return SessionStore
         if (specifier === '@deepseek-ai/dsh-session-title') return SessionTitleService
-        if (specifier === '@wha1echai/dsh-supervisor') {
-          return import('@wha1echai/dsh-supervisor')
+        if (specifier === '@wha1echai/dsh-cross-session') {
+          return import('@wha1echai/dsh-cross-session')
         }
-        if (specifier === '@wha1echai/dsh-supervisor/tool') {
-          return import('@wha1echai/dsh-supervisor/tool')
+        if (specifier === '@wha1echai/dsh-cross-session/tool') {
+          return import('@wha1echai/dsh-cross-session/tool')
         }
-        if (specifier === '@wha1echai/dsh-supervisor/reply-job') {
-          return import('@wha1echai/dsh-supervisor/reply-job')
+        if (specifier === '@wha1echai/dsh-cross-session/reply-job') {
+          return import('@wha1echai/dsh-cross-session/reply-job')
         }
         throw new Error(`unexpected Loader import: ${specifier}`)
       },
@@ -266,7 +266,7 @@ describe('built package through real Loader composition', () => {
       expect.objectContaining({ title: 'Loader title' }),
     )
 
-    const consumer = entry('@wha1echai/dsh-supervisor/tool')
+    const consumer = entry('@wha1echai/dsh-cross-session/tool')
     if (consumer === undefined) throw new Error('real Loader composition did not create the Consumer entry')
     await context.loader.update(consumer.id, { disabled: true })
     await context.loader.await()
@@ -278,7 +278,7 @@ describe('built package through real Loader composition', () => {
     detachTarget()
     detachCaller()
 
-    const provider = entry('@wha1echai/dsh-supervisor')
+    const provider = entry('@wha1echai/dsh-cross-session')
     if (provider === undefined) throw new Error('real Loader composition did not create the Provider entry')
     await context.loader.update(provider.id, { disabled: true })
     await context.loader.await()
@@ -297,7 +297,7 @@ describe('built package through real Loader composition', () => {
   })
 
   it('loads the built Fleet entries without the optional title service', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-supervisor-loader-no-title-'))
+    root = await mkdtemp(join(tmpdir(), 'dsh-cross-session-loader-no-title-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       '- id: system-prompt',
@@ -307,9 +307,9 @@ describe('built package through real Loader composition', () => {
       '- id: agents',
       "  name: '@deepseek-ai/dsh-agent'",
       '- id: supervisor',
-      "  name: '@wha1echai/dsh-supervisor'",
+      "  name: '@wha1echai/dsh-cross-session'",
       '- id: supervisor-tools',
-      "  name: '@wha1echai/dsh-supervisor/tool'",
+      "  name: '@wha1echai/dsh-cross-session/tool'",
       '  config:',
       '    controlMode: full',
       '',
@@ -325,8 +325,8 @@ describe('built package through real Loader composition', () => {
         if (specifier === '@deepseek-ai/dsh-system-prompt') return SystemPrompt
         if (specifier === '@deepseek-ai/dsh-tools') return ToolRuntime
         if (specifier === '@deepseek-ai/dsh-agent') return AgentRegistry
-        if (specifier === '@wha1echai/dsh-supervisor') return import('@wha1echai/dsh-supervisor')
-        if (specifier === '@wha1echai/dsh-supervisor/tool') return import('@wha1echai/dsh-supervisor/tool')
+        if (specifier === '@wha1echai/dsh-cross-session') return import('@wha1echai/dsh-cross-session')
+        if (specifier === '@wha1echai/dsh-cross-session/tool') return import('@wha1echai/dsh-cross-session/tool')
         throw new Error(`unexpected Loader import: ${specifier}`)
       },
     } as unknown as NonNullable<typeof context.loader.internal>

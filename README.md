@@ -1,4 +1,4 @@
-# dsh-supervisor
+# dsh-cross-session
 
 English | [中文](README.zh.md)
 
@@ -6,11 +6,11 @@ A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 > **Status: tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
 
-This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
+This is an independent community project and is not affiliated with or endorsed by DeepSeek AI. It runs inside the existing DSH process and does not start a daemon, a second agent runtime, or a separate network port.
 
 ## Design
 
-DeepSeek Harness treats capabilities as hot-swappable plugin seams. `dsh-supervisor` follows the same structure:
+DeepSeek Harness treats capabilities as hot-swappable plugin seams. `dsh-cross-session` follows the same structure:
 
 ```text
 FleetService                  Service Definition (`ctx.fleet`)
@@ -43,7 +43,7 @@ See [docs/architecture.md](docs/architecture.md) for the complete constraints.
 
 Confirmed-target model `fleet_send` / `fleet_steer` use a versioned `fleet-relay` source. The exact caller Agent supplies `senderSessionId`; the Provider supplies an opaque `deliveryId`. The model-visible header encodes both values; the body starts after a fixed marker in a separate text block, is preserved as untrusted model input, and cannot override structured attribution.
 
-The separate `@wha1echai/dsh-supervisor/tool` entry registers:
+The separate `@wha1echai/dsh-cross-session/tool` entry registers:
 
 - `fleet_list` and `fleet_inspect` in every mode;
 - `fleet_send` and `fleet_steer` in `message` and `full` modes;
@@ -55,7 +55,7 @@ The direct Service API keeps `sessionId` as the stable routing identifier for tr
 
 The default `controlMode` is `read-only`. All five confirmed-target tools pass the exact owning Agent object and derive its Session id for Provider cross-checking; model fields cannot supply caller identity, and agentless execution is rejected. Write authorization remains in `ctx.fleet`. Fleet classifies runtime roots by exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata do not affect `kind` or write authority. Delegated Agents remain read-only in L2.1; the Consumer never bypasses Fleet to call subagent APIs directly.
 
-The optional `@wha1echai/dsh-supervisor/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target. Mount this Consumer in the same host or agent-preset composition as the official Jobs Consumer; its scoped ToolRuntime registration then follows that composition.
+The optional `@wha1echai/dsh-cross-session/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target. Mount this Consumer in the same host or agent-preset composition as the official Jobs Consumer; its scoped ToolRuntime registration then follows that composition.
 
 When the optional `sessionTitle` service is mounted, Fleet reads only an already logged title from the exact live Session and exposes it as a display field in list/inspect projections. Missing or unloaded title service leaves Fleet available without `title`; title never affects identity, routing, selection, ordering, filtering, or authorization. Inspect separately reports messages omitted by the tail limit and per-message `textTruncated` facts.
 
@@ -88,12 +88,12 @@ No npm release is published yet. Use a local checkout or a commit-pinned GitHub 
 ### Local checkout
 
 ```sh
-git clone https://github.com/Wha1eChai/dsh-supervisor.git
-cd dsh-supervisor
+git clone https://github.com/Wha1eChai/dsh-cross-session.git
+cd dsh-cross-session
 pnpm install
 pnpm run build
 
-dsh plugin --profile web add /absolute/path/to/dsh-supervisor
+dsh plugin --profile web add /absolute/path/to/dsh-cross-session
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -101,8 +101,8 @@ dsh --profile web
 On PowerShell, use an isolated development home instead of changing an existing user profile:
 
 ```powershell
-$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-supervisor-home"
-dsh plugin --profile web add D:\coding\programs\dsh\dsh-supervisor
+$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-cross-session-home"
+dsh plugin --profile web add D:\coding\programs\dsh\dsh-cross-session
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -112,27 +112,27 @@ dsh --profile web
 Pin a reviewed commit:
 
 ```sh
-dsh plugin --profile web add github:Wha1eChai/dsh-supervisor#<commit>
+dsh plugin --profile web add github:Wha1eChai/dsh-cross-session#<commit>
 ```
 
 Git installs run the package's `prepare` script to build TypeScript. pnpm 10 and later reject that script until the user explicitly allows the package in the profile's `pnpm-workspace.yaml`:
 
 ```yaml
 allowBuilds:
-  '@wha1echai/dsh-supervisor': true
+  '@wha1echai/dsh-cross-session': true
 ```
 
 Review the source and pin a commit before granting install-time execution permission. Re-run `dsh plugin add` after adding the allowance.
 
 ## Usage
 
-The Bundle installs the host-plane Fleet Provider and the core tool Consumer at its safe `read-only` default, exposing `fleet_list` and `fleet_inspect`. It does not install the optional reply-job Consumer. Mount `@wha1echai/dsh-supervisor/reply-job` in the same host or agent-preset composition as the official Jobs Consumer when `fleet_wait` is intended; scoped ToolRuntime registration keeps that optional tool inside the selected composition.
+The Bundle installs the host-plane Fleet Provider and the core tool Consumer at its safe `read-only` default, exposing `fleet_list` and `fleet_inspect`. It does not install the optional reply-job Consumer. Mount `@wha1echai/dsh-cross-session/reply-job` in the same host or agent-preset composition as the official Jobs Consumer when `fleet_wait` is intended; scoped ToolRuntime registration keeps that optional tool inside the selected composition.
 
-To enable message or cancellation tools, override the complete `dsh-supervisor-tools` row in the profile's `cordis.patch.yml`:
+To enable message or cancellation tools, override the complete `dsh-cross-session-tools` row in the profile's `cordis.patch.yml`:
 
 ```yaml
-- id: dsh-supervisor-tools
-  name: '@wha1echai/dsh-supervisor/tool'
+- id: dsh-cross-session-tools
+  name: '@wha1echai/dsh-cross-session/tool'
   config:
     controlMode: message # read-only | message | full
 ```

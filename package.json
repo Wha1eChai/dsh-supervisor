@@ -1,15 +1,15 @@
 {
-  "name": "@wha1echai/dsh-supervisor",
+  "name": "@wha1echai/dsh-cross-session",
   "version": "0.1.0",
-  "description": "DeepSeek Harness control-plane plugin providing FleetService and model-callable fleet tools",
+  "description": "Same-runtime cross-Session discovery and communication for DeepSeek Harness",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Wha1eChai/dsh-supervisor.git"
+    "url": "git+https://github.com/Wha1eChai/dsh-cross-session.git"
   },
-  "homepage": "https://github.com/Wha1eChai/dsh-supervisor#readme",
+  "homepage": "https://github.com/Wha1eChai/dsh-cross-session#readme",
   "bugs": {
-    "url": "https://github.com/Wha1eChai/dsh-supervisor/issues"
+    "url": "https://github.com/Wha1eChai/dsh-cross-session/issues"
   },
   "keywords": [
     "deepseek",
@@ -19,7 +19,7 @@
     "cordis",
     "agent",
     "multi-agent",
-    "supervisor"
+    "cross-session"
   ],
   "publishConfig": {
     "access": "public"

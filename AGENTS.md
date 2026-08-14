@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`dsh-supervisor` is an independent community plugin for DeepSeek Harness. Read [README.md](README.md), [docs/README.md](docs/README.md), and [docs/plan/decisions.md](docs/plan/decisions.md) before changing behavior.
+`dsh-cross-session` is an independent community plugin for DeepSeek Harness. Read [README.md](README.md), [docs/README.md](docs/README.md), and [docs/plan/decisions.md](docs/plan/decisions.md) before changing behavior.
 
 ## Product boundary
 

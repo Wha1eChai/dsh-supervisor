@@ -8,11 +8,21 @@ import * as toolPlugin from '../src/tool.js'
 describe('package entry point', () => {
   it('declares the optional rc.6 session-title peer without changing exports', async () => {
     const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+      name: string
+      description: string
+      repository: { url: string }
+      homepage: string
+      bugs: { url: string }
       peerDependencies: Record<string, string>
       peerDependenciesMeta: Record<string, { optional?: boolean }>
       exports: Record<string, unknown>
       dsh: { bundle: { patch: string } }
     }
+    expect(packageJson.name).toBe('@wha1echai/dsh-cross-session')
+    expect(packageJson.description).toContain('Same-runtime cross-Session')
+    expect(packageJson.repository.url).toBe('git+https://github.com/Wha1eChai/dsh-cross-session.git')
+    expect(packageJson.homepage).toBe('https://github.com/Wha1eChai/dsh-cross-session#readme')
+    expect(packageJson.bugs.url).toBe('https://github.com/Wha1eChai/dsh-cross-session/issues')
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-brand']).toBe('0.1.0-rc.6')
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-jobs']).toBe('0.1.0-rc.6')
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-session-title']).toBe('0.1.0-rc.6')
@@ -26,10 +36,10 @@ describe('package entry point', () => {
     expect(packageJson.dsh.bundle.patch).toBe('./cordis.patch.yml')
     expect(await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')).toBe([
       '- insert:',
-      '    - id: dsh-supervisor',
-      "      name: '@wha1echai/dsh-supervisor'",
-      '    - id: dsh-supervisor-tools',
-      "      name: '@wha1echai/dsh-supervisor/tool'",
+      '    - id: dsh-cross-session',
+      "      name: '@wha1echai/dsh-cross-session'",
+      '    - id: dsh-cross-session-tools',
+      "      name: '@wha1echai/dsh-cross-session/tool'",
       '',
     ].join('\n'))
   })
@@ -39,7 +49,7 @@ describe('package entry point', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(plugin) as Record<string, unknown>
     expect(unwrapped).toBe(plugin)
-    expect(unwrapped.name).toBe('dsh-supervisor')
+    expect(unwrapped.name).toBe('dsh-cross-session')
     expect(unwrapped.inject).toEqual(['agents'])
     expect(unwrapped.Config).toBe(plugin.Config)
     expect(unwrapped.apply).toBe(plugin.apply)
@@ -54,7 +64,7 @@ describe('package entry point', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolPlugin) as Record<string, unknown>
     expect(unwrapped).toBe(toolPlugin)
-    expect(unwrapped.name).toBe('tool-dsh-supervisor')
+    expect(unwrapped.name).toBe('tool-dsh-cross-session')
     expect(unwrapped.inject).toEqual(['tools', 'fleet'])
     expect(unwrapped.Config).toBe(toolPlugin.Config)
     expect(unwrapped.apply).toBe(toolPlugin.apply)
@@ -71,7 +81,7 @@ describe('package entry point', () => {
     }
     const unwrapped = loader.unwrapExports(namespace) as Record<string, unknown>
     expect(unwrapped).toBe(namespace)
-    expect(unwrapped.name).toBe('tool-dsh-supervisor-reply-job')
+    expect(unwrapped.name).toBe('tool-dsh-cross-session-reply-job')
     expect(unwrapped.inject).toEqual(['tools', 'fleet'])
     expect(unwrapped.Config).toBe(namespace.Config)
     expect(unwrapped.apply).toBe(replyJobPlugin.apply)

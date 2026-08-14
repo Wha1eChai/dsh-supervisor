@@ -1,6 +1,6 @@
 /**
  * Optional model Consumer that turns one Fleet reply receipt into a background job.
- * @module @wha1echai/dsh-supervisor/reply-job
+ * @module @wha1echai/dsh-cross-session/reply-job
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -8,7 +8,7 @@ import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
-export const name = 'tool-dsh-supervisor-reply-job'
+export const name = 'tool-dsh-cross-session-reply-job'
 export const inject = ['tools', 'fleet']
 
 /** Bounded job-output configuration for the optional reply Consumer. */

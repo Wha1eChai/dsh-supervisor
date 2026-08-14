@@ -1,4 +1,4 @@
-# dsh-supervisor
+# dsh-cross-session
 
 [English](README.md) | 中文
 
@@ -6,7 +6,7 @@
 
 > **状态：Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。
 
-这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
+这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。它运行在现有 DSH 进程内，不启动 daemon、第二套 Agent runtime 或独立网络端口。
 
 ## 设计
 
@@ -43,7 +43,7 @@ Subagent 和 workflow 工具属于可选 profile 组合。只有对应公开 sea
 
 confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-relay` source。exact caller Agent 提供 `senderSessionId`，Provider 提供 opaque `deliveryId`。模型可见 header 同时编码两者；固定 marker 之后的正文从独立 text block 开始，按原文保留为不可信模型输入，不能覆盖结构化归因。
 
-独立入口 `@wha1echai/dsh-supervisor/tool` 注册：
+独立入口 `@wha1echai/dsh-cross-session/tool` 注册：
 
 - 所有模式都有 `fleet_list` 和 `fleet_inspect`；
 - `message` 和 `full` 模式增加 `fleet_send` 与 `fleet_steer`；
@@ -55,7 +55,7 @@ confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-rel
 
 `controlMode` 默认是 `read-only`。五个 confirmed-target 工具都把 owning Agent 的 exact object 传给 Provider，并从它派生 Session id 做交叉校验；模型字段不能提供 caller identity，没有 owning Agent 时直接失败。写授权继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
 
-可选入口 `@wha1echai/dsh-supervisor/reply-job` 只在 `ctx.jobs` 已挂载时注册 `fleet_wait`。它创建 owner-scoped `fleet-reply` 后台 job；output/list/kill、controller 和 completion notice 继续由官方 job tools 负责。Kill job 只 abort reply observation，不 cancel target。应把该 Consumer 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；它的 scoped ToolRuntime 注册会跟随该 composition。
+可选入口 `@wha1echai/dsh-cross-session/reply-job` 只在 `ctx.jobs` 已挂载时注册 `fleet_wait`。它创建 owner-scoped `fleet-reply` 后台 job；output/list/kill、controller 和 completion notice 继续由官方 job tools 负责。Kill job 只 abort reply observation，不 cancel target。应把该 Consumer 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；它的 scoped ToolRuntime 注册会跟随该 composition。
 
 挂载可选的 `sessionTitle` 服务后，Fleet 只从 exact live Session 读取日志中已经记录的标题，并把它作为 list/inspect 的展示字段。标题服务缺失或卸载时 Fleet 仍可用，只省略 `title`；标题不影响 identity、routing、selection、顺序、过滤或授权。Inspect 另外报告 tail limit 省略的消息数和每条消息的 `textTruncated` 事实。
 
@@ -88,12 +88,12 @@ API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fl
 ### 本地 checkout
 
 ```sh
-git clone https://github.com/Wha1eChai/dsh-supervisor.git
-cd dsh-supervisor
+git clone https://github.com/Wha1eChai/dsh-cross-session.git
+cd dsh-cross-session
 pnpm install
 pnpm run build
 
-dsh plugin --profile web add /absolute/path/to/dsh-supervisor
+dsh plugin --profile web add /absolute/path/to/dsh-cross-session
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -101,8 +101,8 @@ dsh --profile web
 PowerShell 开发时使用隔离的 DSH home，不要修改已有用户 profile：
 
 ```powershell
-$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-supervisor-home"
-dsh plugin --profile web add D:\coding\programs\dsh\dsh-supervisor
+$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-cross-session-home"
+dsh plugin --profile web add D:\coding\programs\dsh\dsh-cross-session
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -112,27 +112,27 @@ dsh --profile web
 固定已审查的 commit：
 
 ```sh
-dsh plugin --profile web add github:Wha1eChai/dsh-supervisor#<commit>
+dsh plugin --profile web add github:Wha1eChai/dsh-cross-session#<commit>
 ```
 
 Git 安装会执行包内的 `prepare` 来构建 TypeScript。pnpm 10 及以上默认拒绝该脚本，用户需要在 profile 的 `pnpm-workspace.yaml` 中显式允许：
 
 ```yaml
 allowBuilds:
-  '@wha1echai/dsh-supervisor': true
+  '@wha1echai/dsh-cross-session': true
 ```
 
 授予安装时执行权限前应先审查源码并固定 commit。添加授权后重新运行 `dsh plugin add`。
 
 ## 使用
 
-Bundle 会安装 host-plane Fleet Provider，以及采用安全 `read-only` 默认值的核心工具 Consumer，暴露 `fleet_list` 和 `fleet_inspect`。Bundle 不安装可选 reply-job Consumer。需要 `fleet_wait` 时，把 `@wha1echai/dsh-supervisor/reply-job` 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；scoped ToolRuntime 注册会把该可选工具限制在指定 composition 内。
+Bundle 会安装 host-plane Fleet Provider，以及采用安全 `read-only` 默认值的核心工具 Consumer，暴露 `fleet_list` 和 `fleet_inspect`。Bundle 不安装可选 reply-job Consumer。需要 `fleet_wait` 时，把 `@wha1echai/dsh-cross-session/reply-job` 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；scoped ToolRuntime 注册会把该可选工具限制在指定 composition 内。
 
-如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-supervisor-tools` 行：
+如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-cross-session-tools` 行：
 
 ```yaml
-- id: dsh-supervisor-tools
-  name: '@wha1echai/dsh-supervisor/tool'
+- id: dsh-cross-session-tools
+  name: '@wha1echai/dsh-cross-session/tool'
   config:
     controlMode: message # read-only | message | full
 ```

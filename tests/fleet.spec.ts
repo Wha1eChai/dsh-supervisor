@@ -324,13 +324,13 @@ describe('Fleet L1 behavior', () => {
       id: sent.messageId,
       role: 'user',
       content: [{ type: 'text', text: 'follow up' }],
-      source: { kind: 'plugin', plugin: 'dsh-supervisor' },
+      source: { kind: 'plugin', plugin: 'dsh-cross-session' },
     })
     expect(steeringMessage).toMatchObject({
       id: steered.messageId,
       role: 'user',
       content: [{ type: 'text', text: 'change direction' }],
-      source: { kind: 'plugin', plugin: 'dsh-supervisor' },
+      source: { kind: 'plugin', plugin: 'dsh-cross-session' },
     })
   })
 
