@@ -22,7 +22,7 @@ Provider 通过可选的 `ctx.sessionTitle` 服务调用 `get(agent.session)`。
 
 ## Composition
 
-`@deepseek-ai/dsh-session-title` 是 `0.1.0-rc.6` optional peer/dev dependency。Supervisor 不把它加入 Bundle patch，也不把它作为 Provider 的 required injection。主入口与 `./tool` 继续使用 Loader-safe named exports。
+`@deepseek-ai/dsh-session-title` 是 `0.1.0-rc.6` optional peer/dev dependency。Cross-session plugin 不把它加入 Bundle patch，也不把它作为 Provider 的 required injection。主入口与 `./tool` 继续使用 Loader-safe named exports。
 
 ## 验收
 

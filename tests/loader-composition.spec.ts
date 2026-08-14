@@ -7,13 +7,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -61,7 +62,7 @@ function registerRoot(idText: string, received: UserMessage[] = []): () => void 
 
 describe('built package through real Loader composition', () => {
   it('loads both namespace entries, executes a real Fleet tool, and removes stale Consumers', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-supervisor-loader-'))
+    root = await mkdtemp(join(tmpdir(), 'dsh-cross-session-loader-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       '- id: system-prompt',
@@ -78,12 +79,16 @@ describe('built package through real Loader composition', () => {
       '    maxTitleBytes: 80',
       '- id: agents',
       "  name: '@deepseek-ai/dsh-agent'",
+      '- id: jobs',
+      "  name: '@deepseek-ai/dsh-jobs-local'",
       '- id: supervisor',
-      "  name: '@wha1echai/dsh-supervisor'",
+      "  name: '@wha1echai/dsh-cross-session'",
       '- id: supervisor-tools',
-      "  name: '@wha1echai/dsh-supervisor/tool'",
+      "  name: '@wha1echai/dsh-cross-session/tool'",
       '  config:',
       '    controlMode: full',
+      '- id: supervisor-reply-job',
+      "  name: '@wha1echai/dsh-cross-session/reply-job'",
       '',
     ].join('\n'))
 
@@ -97,13 +102,17 @@ describe('built package through real Loader composition', () => {
         if (specifier === '@deepseek-ai/dsh-system-prompt') return SystemPrompt
         if (specifier === '@deepseek-ai/dsh-tools') return ToolRuntime
         if (specifier === '@deepseek-ai/dsh-agent') return AgentRegistry
+        if (specifier === '@deepseek-ai/dsh-jobs-local') return LocalJobRegistry
         if (specifier === '@deepseek-ai/dsh-session') return SessionStore
         if (specifier === '@deepseek-ai/dsh-session-title') return SessionTitleService
-        if (specifier === '@wha1echai/dsh-supervisor') {
-          return import('@wha1echai/dsh-supervisor')
+        if (specifier === '@wha1echai/dsh-cross-session') {
+          return import('@wha1echai/dsh-cross-session')
         }
-        if (specifier === '@wha1echai/dsh-supervisor/tool') {
-          return import('@wha1echai/dsh-supervisor/tool')
+        if (specifier === '@wha1echai/dsh-cross-session/tool') {
+          return import('@wha1echai/dsh-cross-session/tool')
+        }
+        if (specifier === '@wha1echai/dsh-cross-session/reply-job') {
+          return import('@wha1echai/dsh-cross-session/reply-job')
         }
         throw new Error(`unexpected Loader import: ${specifier}`)
       },
@@ -121,8 +130,10 @@ describe('built package through real Loader composition', () => {
     expect(unloaded).toEqual([])
     expect(context.get('fleet')).toBeDefined()
     expect(context.get('sessionTitle')).toBeDefined()
+    expect(context.get('jobs')).toBeDefined()
+    context.jobs.attachController('loader-test')
     expect(context.tools.schemas().map(schema => schema.name).sort()).toEqual([
-      'fleet_cancel', 'fleet_inspect', 'fleet_list', 'fleet_send', 'fleet_steer',
+      'fleet_cancel', 'fleet_inspect', 'fleet_list', 'fleet_send', 'fleet_steer', 'fleet_wait',
     ])
 
     const received: UserMessage[] = []
@@ -193,7 +204,13 @@ describe('built package through real Loader composition', () => {
     })
     expect(sent.isError).toBe(false)
     if (sent.isError) throw new Error(sent.error.message)
-    expect(sent.value).toMatchObject({ sessionId: 'loader-target', messageId: expect.any(String), deliveryId: expect.stringMatching(/^fd_/) })
+    expect(sent.value).toMatchObject({
+      sessionId: 'loader-target',
+      messageId: expect.any(String),
+      deliveryId: expect.stringMatching(/^fd_/),
+      replyReceipt: expect.stringMatching(/^fr_/),
+      replyReceiptExpiresAt: expect.any(Number),
+    })
     expect(received).toHaveLength(1)
     const delivered = received[0]
     if (delivered === undefined) throw new Error('missing delivered relay')
@@ -214,13 +231,32 @@ describe('built package through real Loader composition', () => {
     expect(JSON.stringify(delivered)).not.toContain(targetEntry.targetRef)
     expect(JSON.stringify(delivered)).not.toContain(sendSelection.handle)
 
+    const waiter = await context.tools.execute({
+      callId: CallId('loader-fleet-wait'),
+      name: 'fleet_wait',
+      arguments: { reply_receipt: (sent.value as { replyReceipt: string }).replyReceipt },
+      signal: new AbortController().signal,
+      agent: caller,
+    })
+    if (waiter.isError) {
+      throw new Error(`${waiter.error.message} ${JSON.stringify(waiter.error.info)}`)
+    }
+    expect(waiter.value).toEqual({ jobId: expect.stringMatching(/^fleet-reply-/) })
+    expect(context.jobs.list(caller)).toEqual([
+      expect.objectContaining({ id: (waiter.value as { jobId: string }).jobId, kind: 'fleet-reply', status: 'running' }),
+    ])
+    expect(context.jobs.kill((waiter.value as { jobId: never }).jobId, caller, 'loader cleanup')).toBe('requested')
+    await vi.waitFor(() => {
+      expect(context!.jobs.get((waiter.value as { jobId: never }).jobId, caller).status).toBe('killed')
+    })
+
     const titleEntry = entry('@deepseek-ai/dsh-session-title')
     if (titleEntry === undefined) throw new Error('real Loader composition did not create the title entry')
     await context.loader.update(titleEntry.id, { disabled: true })
     await context.loader.await()
     expect(context.get('sessionTitle')).toBeUndefined()
     expect(context.get('fleet')).toBeDefined()
-    expect(context.tools.schemas()).toHaveLength(5)
+    expect(context.tools.schemas()).toHaveLength(6)
     expect(context.fleet.list().find(view => view.sessionId === 'loader-target')).not.toHaveProperty('title')
 
     await context.loader.update(titleEntry.id, { disabled: false })
@@ -230,19 +266,19 @@ describe('built package through real Loader composition', () => {
       expect.objectContaining({ title: 'Loader title' }),
     )
 
-    const consumer = entry('@wha1echai/dsh-supervisor/tool')
+    const consumer = entry('@wha1echai/dsh-cross-session/tool')
     if (consumer === undefined) throw new Error('real Loader composition did not create the Consumer entry')
     await context.loader.update(consumer.id, { disabled: true })
     await context.loader.await()
-    expect(context.tools.schemas()).toEqual([])
+    expect(context.tools.schemas().map(schema => schema.name)).toEqual(['fleet_wait'])
     expect(context.get('fleet')).toBeDefined()
     await context.loader.update(consumer.id, { disabled: false })
     await context.loader.await()
-    expect(context.tools.schemas()).toHaveLength(5)
+    expect(context.tools.schemas()).toHaveLength(6)
     detachTarget()
     detachCaller()
 
-    const provider = entry('@wha1echai/dsh-supervisor')
+    const provider = entry('@wha1echai/dsh-cross-session')
     if (provider === undefined) throw new Error('real Loader composition did not create the Provider entry')
     await context.loader.update(provider.id, { disabled: true })
     await context.loader.await()
@@ -261,7 +297,7 @@ describe('built package through real Loader composition', () => {
   })
 
   it('loads the built Fleet entries without the optional title service', async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-supervisor-loader-no-title-'))
+    root = await mkdtemp(join(tmpdir(), 'dsh-cross-session-loader-no-title-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       '- id: system-prompt',
@@ -271,9 +307,9 @@ describe('built package through real Loader composition', () => {
       '- id: agents',
       "  name: '@deepseek-ai/dsh-agent'",
       '- id: supervisor',
-      "  name: '@wha1echai/dsh-supervisor'",
+      "  name: '@wha1echai/dsh-cross-session'",
       '- id: supervisor-tools',
-      "  name: '@wha1echai/dsh-supervisor/tool'",
+      "  name: '@wha1echai/dsh-cross-session/tool'",
       '  config:',
       '    controlMode: full',
       '',
@@ -289,8 +325,8 @@ describe('built package through real Loader composition', () => {
         if (specifier === '@deepseek-ai/dsh-system-prompt') return SystemPrompt
         if (specifier === '@deepseek-ai/dsh-tools') return ToolRuntime
         if (specifier === '@deepseek-ai/dsh-agent') return AgentRegistry
-        if (specifier === '@wha1echai/dsh-supervisor') return import('@wha1echai/dsh-supervisor')
-        if (specifier === '@wha1echai/dsh-supervisor/tool') return import('@wha1echai/dsh-supervisor/tool')
+        if (specifier === '@wha1echai/dsh-cross-session') return import('@wha1echai/dsh-cross-session')
+        if (specifier === '@wha1echai/dsh-cross-session/tool') return import('@wha1echai/dsh-cross-session/tool')
         throw new Error(`unexpected Loader import: ${specifier}`)
       },
     } as unknown as NonNullable<typeof context.loader.internal>

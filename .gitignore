@@ -2,6 +2,8 @@ node_modules
 dist
 coverage
 .pack-output
+.dsh-cross-session-*-home
+.dsh-cross-session-release-consumer
 *.tgz
 .pi/
 *.tsbuildinfo

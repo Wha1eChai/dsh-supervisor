@@ -68,7 +68,7 @@ Self target 和 runtime delegated target 可以 inspect，但不会收到 select
 
 | `fleet_cancel` | `selection_handle`, `keep_inbox?` | `{ sessionId, accepted: true }` |
 
-L2.4 augments both selected-write outputs with the Provider-generated opaque `deliveryId`; see [phase-l2.4.md](phase-l2.4.md).
+L2.4 augments both selected-write outputs with the Provider-generated opaque `deliveryId`; L2.5 further augments selected `fleet_send` with `replyReceipt` and `replyReceiptExpiresAt`. See [phase-l2.4.md](phase-l2.4.md) and [phase-l2.5.md](phase-l2.5.md).
 
 五个工具都要求 owning Agent，并只从 `exec.agent.session.id` 派生 caller。List/inspect 保持 parallel；write 保持 exclusive。
 

@@ -1,13 +1,13 @@
 /**
  * Model-facing Fleet tool Consumer over the replaceable `ctx.fleet` service.
- * @module @wha1echai/dsh-supervisor/tool
+ * @module @wha1echai/dsh-cross-session/tool
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool, type GenericCallView } from '@deepseek-ai/dsh-tools'
 
-export const name = 'tool-dsh-supervisor'
+export const name = 'tool-dsh-cross-session'
 export const inject = ['tools', 'fleet']
 
 /** Deployment-level visibility for model-callable Fleet control tools. */
@@ -107,7 +107,19 @@ const FLEET_LIST_VALUE_SCHEMA = {
   },
 } as const
 
-const FLEET_WRITE_VALUE_SCHEMA = {
+const FLEET_SEND_VALUE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    sessionId: { type: 'string', required: true },
+    messageId: { type: 'string', required: true },
+    deliveryId: { type: 'string', required: true },
+    replyReceipt: { type: 'string', required: true },
+    replyReceiptExpiresAt: { type: 'number', required: true },
+  },
+} as const
+
+const FLEET_STEER_VALUE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -259,10 +271,10 @@ export function apply(ctx: Context, config: Config): void {
           text: { type: 'string', required: true, description: 'Follow-up message text.' },
         },
         output: {
-          schema: FLEET_WRITE_VALUE_SCHEMA,
+          schema: FLEET_SEND_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}.`
+            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}. Reply receipt ${value.replyReceipt} expires at ${value.replyReceiptExpiresAt}; use fleet_wait when that optional Jobs Consumer is available.`
           }],
         },
         async execute(args, exec) {
@@ -294,7 +306,7 @@ export function apply(ctx: Context, config: Config): void {
           text: { type: 'string', required: true, description: 'Steering message text.' },
         },
         output: {
-          schema: FLEET_WRITE_VALUE_SCHEMA,
+          schema: FLEET_STEER_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
             text: `Submitted steering message ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}.`

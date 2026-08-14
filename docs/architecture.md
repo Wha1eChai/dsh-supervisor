@@ -52,7 +52,7 @@ Service 存在不代表对应模型工具已经挂载。不要为了“方便”
 ```text
 dsh --profile <name>
   └─ official bundles
-       └─ @wha1echai/dsh-supervisor
+       └─ @wha1echai/dsh-cross-session
             ├─ FleetService          Definition + 当前进程内 Provider
             ├─ fleet_* tools         Consumer（L2）
             ├─ future: supervisor preset
@@ -104,12 +104,13 @@ subscribe(listener) -> disposer
 
 listTargets(options) -> FleetTargetView[]
 inspectTarget(targetRef, options) -> FleetTargetInspectView
-sendSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
+sendSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId, replyReceipt, replyReceiptExpiresAt }
+waitForReply(replyReceipt, options) -> FleetReplyResult
 steerSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
 cancelSelected(selectionHandle, options) -> { sessionId, accepted: true }
 ```
 
-Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable` 拒绝上述操作，不再读取 Agent 注册表或调用 Agent，并清空所有 target reference 与 selection。
+Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable` 拒绝上述操作，不再读取 Agent 注册表或调用 Agent，并清空所有 target reference、selection 与 reply record；active reply waiter 同样失败。
 
 `subscribe` 的 listener 是观察者。同步异常和返回 Promise 的拒绝会逐个记录，并且不阻断 Agent 生命周期或其他 Fleet listener。
 
@@ -135,6 +136,12 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 `sessionId` 在当前 DSH runtime 范围内稳定。未来任何 Session-list UI 必须展示它并提供复制操作；当前包没有该 UI。若未来支持多个 runtime，必须另行增加 runtime namespace 或等价寻址机制，不能假定当前 `sessionId` 已是全局 remote address。
 
+## Reply observation 与 Jobs 分工
+
+Selected follow-up 在 target side effect 前建立 caller-bound、exact-target-bound reply record。Provider 只用 `agent/inbox/claimed` 将 exact message 绑定到 turn，再从 exact target Session 的 `assistant/message` 与 `turn/end` 生成 bounded turn-level result。它不使用 `agent/status`、`whenIdle()` 或轮询，不声称 assistant output 只由该 message 因果产生，并且不把 steer 解释成独立 reply turn。
+
+`@wha1echai/dsh-cross-session/reply-job` 是独立 Consumer：只在 `ctx.jobs` 存在时注册 `fleet_wait` 并生产 `fleet-reply` job。它不注册 job list/output/kill，不 attach controller，不发送 completion notice；这些职责留给官方 Jobs Consumer。该入口必须挂在 intended Agent 的 host/preset composition 中，并与官方 Jobs Consumer 的 scope 对齐；ToolRuntime 按注册 context 的 scope 只向该 composition 及其后代暴露工具。
+
 ## 当前 Provider 行为
 
 取消使用 `{ kind: 'hook', reason: 'fleet-cancel' }`。
@@ -142,7 +149,7 @@ control: 'direct' | 'subagent' | 'observe-only'
 Direct 发送/转向消息来源：
 
 ```ts
-{ kind: 'plugin', plugin: 'dsh-supervisor' }
+{ kind: 'plugin', plugin: 'dsh-cross-session' }
 ```
 
 Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source。`senderSessionId` 只能来自 selection 绑定的 exact caller Agent，`deliveryId` 由 Provider 生成并用于 receipt correlation。模型可见 header 同时编码 sender 和 delivery id；固定 marker 之后的 body 从独立 text block 开始并保持 untrusted。正文不是授权或 correlation 来源。Relay source 已包含在现有 durable `user/message` 中，不新增 Fleet Session event。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
@@ -161,7 +168,7 @@ Provider 为 exact Agent 对象缓存已观察到的 runtime classification，�
 
 ## 组合
 
-插件声明 `dsh.bundle.patch`。patch **只 insert 自己的 row**，不整行替换官方 bundle config。
+插件声明 `dsh.bundle.patch`。patch **只 insert repository-owned rows**，不整行替换官方 bundle config。Bundle 插入 host-plane Provider 与安全 `read-only` 核心 Consumer；可选 `./reply-job` 不由 Bundle 全局插入，部署者把它加入需要 `fleet_wait` 的 host/preset composition。
 
 当前调试宿主是现有 `web` profile。它不表示插件提供 remote Web 或 supervisor UI；独立 `supervisor` profile 属于未来 L4+。
 

@@ -4,7 +4,7 @@
 
 ## 目标
 
-在同一个 npm 包中增加独立入口 `@wha1echai/dsh-supervisor/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions`、`ctx.subagents` 或 `ctx.workflowEngine`。
+在同一个 npm 包中增加独立入口 `@wha1echai/dsh-cross-session/tool`，通过 `ctx.tools` 暴露标准 `fleet_*` 工具。Consumer 只注入 `tools` 和 `fleet`，不读取 `ctx.agents`、`ctx.sessions`、`ctx.subagents` 或 `ctx.workflowEngine`。
 
 L2 不改变 `FleetService` 的 delegated 写入约定。`ctx.subagents.followup()` 需要精确 live parent `Agent` 作为授权，现有 Fleet API 只有 JSON-safe caller id；该能力需要单独设计，不能由工具绕过 Service Definition。
 
@@ -13,23 +13,13 @@ L2 不改变 `FleetService` 的 delegated 写入约定。`ctx.subagents.followup
 ## 插件入口
 
 ```text
-@wha1echai/dsh-supervisor       Fleet Definition + 当前同进程 Provider
-@wha1echai/dsh-supervisor/tool  模型工具 Consumer
+@wha1echai/dsh-cross-session       Fleet Definition + 当前同进程 Provider
+@wha1echai/dsh-cross-session/tool  模型工具 Consumer
 ```
 
 两个入口都是 Loader-safe namespace plugin，不导出 `default`。
 
-Bundle patch 插入两个独立 row：
-
-```yaml
-- insert:
-    - id: dsh-supervisor
-      name: '@wha1echai/dsh-supervisor'
-    - id: dsh-supervisor-tools
-      name: '@wha1echai/dsh-supervisor/tool'
-```
-
-Consumer row 依赖 `tools` / `fleet`，因此 Provider 或 ToolRuntime 不可用时由 Cordis 保持 pending；Provider 被替换时 Consumer 自动卸载并重载。
+Bundle patch 插入 Provider 与采用安全 `read-only` 默认值的核心 Consumer row。Write mode 通过 profile 或 intended Agent composition 覆盖完整 Consumer row；可选 `reply-job` 不属于该默认 Bundle。Consumer row 依赖 `tools` / `fleet`，因此 Provider 或 ToolRuntime 不可用时由 Cordis 保持 pending；Provider 被替换时 Consumer 自动卸载并重载。Consumer 挂在 scoped composition 时，ToolRuntime 按注册 context 的 scope 只向该 composition 及其后代暴露工具。
 
 ## 配置
 
@@ -211,8 +201,8 @@ Canonical output：
 ```text
 @deepseek-ai/dsh-system-prompt
 @deepseek-ai/dsh-tools
-@wha1echai/dsh-supervisor
-@wha1echai/dsh-supervisor/tool
+@wha1echai/dsh-cross-session
+@wha1echai/dsh-cross-session/tool
 ```
 
 - 从构建后的 package exports 导入两个本包入口。

@@ -5,7 +5,7 @@
 ## 产品
 
 1. 本仓库是 **DSH 外部插件**，不是第二个 harness，也不往 `deepseek-ai/deepseek-harness` 提 PR。
-2. 包名 `@wha1echai/dsh-supervisor`。禁止发布或伪装 `@deepseek-ai/*`。
+2. 包名 `@wha1echai/dsh-cross-session`。禁止发布或伪装 `@deepseek-ai/*`。
 3. 用户感知是：安装官方 `dsh`，再 `dsh plugin add` 本包。
 4. 当前产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。
 5. 当前产品面是 Fleet Service/API 和模型可调用的 `fleet_*` 工具，不是多 Session UI 或远程控制服务。
@@ -49,21 +49,24 @@
 34. `agent/disposed` 在 registry 删除后发出；Fleet 必须按 exact Agent 对象缓存 runtime classification，禁止在 disposal 路径读取 roots、按 id 查询当前 Agent、调用 `isOwnedBy` 或回退到 lineage。Provider 挂载时先监听 lifecycle，再 seed 已经 live 的 Agent。
 35. 传入 `callerSessionId` 时禁止控制自己。
 36. 取消原因：`{ kind: 'hook', reason: 'fleet-cancel' }`。
-37. 发送/转向来源按调用车道区分：可信程序化 direct `send` / `steer` 保持 `{ kind: 'plugin', plugin: 'dsh-supervisor' }`；confirmed-target 模型 `sendSelected` / `steerSelected` 使用版本化 `fleet-relay` source。Confirmed-target 的 list/inspect/write lane 必须携带 ToolRuntime 提供的 exact caller Agent；Provider 将该 exact object 绑定到 transient target/selection state，并只从它派生 `senderSessionId`。`callerSessionId` 只是同一 exact object 的一致性校验，不能单独授予归因。Provider 同时生成 opaque `deliveryId` 并将其写入 source、model-visible header 和 delivery receipt；固定 marker 之后的 body 从独立 text block 开始并保持 untrusted。Relay attribution 不扩大写授权，不能由工具 schema、direct caller 字符串、标题或正文覆盖。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
-38. patch **只 insert** 自己的 row，不整行替换官方 bundle config。
+37. 发送/转向来源按调用车道区分：可信程序化 direct `send` / `steer` 保持 `{ kind: 'plugin', plugin: 'dsh-cross-session' }`；confirmed-target 模型 `sendSelected` / `steerSelected` 使用版本化 `fleet-relay` source。Confirmed-target 的 list/inspect/write lane 必须携带 ToolRuntime 提供的 exact caller Agent；Provider 将该 exact object 绑定到 transient target/selection state，并只从它派生 `senderSessionId`。`callerSessionId` 只是同一 exact object 的一致性校验，不能单独授予归因。Provider 同时生成 opaque `deliveryId` 并将其写入 source、model-visible header 和 delivery receipt；固定 marker 之后的 body 从独立 text block 开始并保持 untrusted。Relay attribution 不扩大写授权，不能由工具 schema、direct caller 字符串、标题或正文覆盖。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
+38. patch **只 insert** 自己的 row，不整行替换官方 bundle config。Bundle 保留安全 `read-only` 核心 Consumer；write mode 和可选 `reply-job` Consumer 由 intended Agent composition 显式配置。
+39. Selected `send` 在调用 `followup()` 前创建 caller-bound、exact-target-bound、Provider-bound `replyReceipt`；`waitForReply()` 只观察该消息被 `agent/inbox/claimed` 绑定的完整 turn，收集同 turn 的 bounded `assistant/message` 并在 `turn/end` 结算。它不使用 `status`、`whenIdle()` 或因果推断，也不覆盖 steer。
+40. Reply receipt 是 single-observer capability。Timeout/abort/Jobs kill 只停止观察，不 cancel、steer 或替换 target。回复在观察前完成可短期保留；discard、target disposal/replacement、caller disposal、expiry 和 Provider unload 都有 fail-closed terminal behavior。
+41. `@wha1echai/dsh-cross-session/reply-job` 是可选 Jobs Consumer：仅在 `ctx.jobs` 存在时注册 `fleet_wait`，只生产 owner-scoped `fleet-reply` job；官方 `dsh-tool-jobs` 继续独占 job list/output/kill、completion notice 和 controller 语义。该 Consumer 与官方 Jobs Consumer 挂在同一个 intended Agent composition scope；Fleet 不实现第二套 Job Registry，也不把该可选 Consumer 作为 Bundle 的全局 host row。
 
 ## 工程
 
-39. 包管理：**pnpm**。不要提交 npm / yarn lockfile。
-40. 模块：**ESM**（`"type": "module"`）。
-41. 运行时钉 **`@deepseek-ai/dsh@0.1.0-rc.6`** 所携带的公开包版本；直接 import 的 DSH peer 使用精确 `0.1.0-rc.6`，不使用会跨到稳定版的 `^0.1.0-rc.6`。
-42. 接受配置的插件导出同名 TypeScript `Config` 与 Schemastery schema；deployment-varying 默认值不得藏在方法里。
-43. Git/GitHub 源安装必须有 `prepare` 从源码构建；registry/tarball 分发携带构建产物。
-44. 测试默认 **keyless**：mock `ctx.agents` / `Agent`。不把需要 `DEEPSEEK_API_KEY` 的 e2e 当作 L1 门禁。
-45. 代码、标识符、commit message 用英文；用户文档用中文。
-46. L2 工具是独立 `./tool` Consumer，只依赖 `ctx.fleet` / `ctx.tools`；不读取 `ctx.agents`、`ctx.subagents` 或 `ctx.workflowEngine`。
-47. 工具默认 `controlMode: 'read-only'`；`message` 才暴露 send/steer，`full` 才暴露 cancel。模型不能传 `callerSessionId`。
-48. Delegated child followup / interrupt 需要 subagent seam 的精确 parent authority，属于后续 L2b Service API 设计，不由 L2 Consumer 绕过。
-49. L2.3 的 title discovery 只能通过可选 `ctx.sessionTitle.get(exactLiveSession)` 读取已有 `session/title`；不得调用 `refresh`、生成标题、注册 Provider 或依赖 LLM。服务缺失或卸载时 Fleet 必须继续可用并省略 `title`。
-50. Title 只是展示投影，不能参与 Session identity、routing、target reference、selection、排序、过滤、runtime ownership 或授权，也不能扩大 live Agent corpus。
-51. Inspect 必须先过滤 user/assistant 候选，再分别记录 tail omission 的 `omittedMessages` 和每条摘要的 `textTruncated`；tool、reasoning 与其他消息角色不计入 omission。
+42. 包管理：**pnpm**。不要提交 npm / yarn lockfile。
+43. 模块：**ESM**（`"type": "module"`）。
+44. 运行时钉 **`@deepseek-ai/dsh@0.1.0-rc.6`** 所携带的公开包版本；直接 import 的 DSH peer 使用精确 `0.1.0-rc.6`，不使用会跨到稳定版的 `^0.1.0-rc.6`。
+45. 接受配置的插件导出同名 TypeScript `Config` 与 Schemastery schema；deployment-varying 默认值不得藏在方法里。
+46. Git/GitHub 源安装必须有 `prepare` 从源码构建；registry/tarball 分发携带构建产物。
+47. 测试默认 **keyless**：mock `ctx.agents` / `Agent`。不把需要 `DEEPSEEK_API_KEY` 的 e2e 当作 L1 门禁。
+48. 代码、标识符、commit message 用英文；用户文档用中文。
+49. L2 工具是独立 `./tool` Consumer，只依赖 `ctx.fleet` / `ctx.tools`；不读取 `ctx.agents`、`ctx.subagents` 或 `ctx.workflowEngine`。
+50. 工具默认 `controlMode: 'read-only'`；`message` 才暴露 send/steer，`full` 才暴露 cancel。模型不能传 `callerSessionId`。
+51. Delegated child followup / interrupt 需要 subagent seam 的精确 parent authority，属于后续 L2b Service API 设计，不由 L2 Consumer 绕过。
+52. L2.3 的 title discovery 只能通过可选 `ctx.sessionTitle.get(exactLiveSession)` 读取已有 `session/title`；不得调用 `refresh`、生成标题、注册 Provider 或依赖 LLM。服务缺失或卸载时 Fleet 必须继续可用并省略 `title`。
+53. Title 只是展示投影，不能参与 Session identity、routing、target reference、selection、排序、过滤、runtime ownership 或授权，也不能扩大 live Agent corpus。
+54. Inspect 必须先过滤 user/assistant 候选，再分别记录 tail omission 的 `omittedMessages` 和每条摘要的 `textTruncated`；tool、reasoning 与其他消息角色不计入 omission。

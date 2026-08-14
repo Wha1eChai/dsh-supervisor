@@ -5,6 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId, type ToolSchema } from '@deepseek-ai/dsh-llm'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -17,8 +18,11 @@ import type {
   FleetInspectOptions,
   FleetInspectView,
   FleetListFilter,
+  FleetReplyResult,
+  FleetReplyWaitOptions,
   FleetSelectedCancelOptions,
   FleetSelectedWriteOptions,
+  FleetSendReceipt,
   FleetTargetInspectOptions,
   FleetTargetInspectView,
   FleetTargetListOptions,
@@ -63,13 +67,14 @@ interface FleetCalls {
   listTargets: FleetTargetListOptions[]
   inspectTarget: Array<[string, FleetTargetInspectOptions]>
   sendSelected: Array<[string, string, FleetSelectedWriteOptions]>
+  waitForReply: Array<[string, FleetReplyWaitOptions]>
   steerSelected: Array<[string, string, FleetSelectedWriteOptions]>
   cancelSelected: Array<[string, FleetSelectedCancelOptions]>
 }
 
 class RecordingFleet extends FleetService {
   readonly calls: FleetCalls = {
-    listTargets: [], inspectTarget: [], sendSelected: [], steerSelected: [], cancelSelected: [],
+    listTargets: [], inspectTarget: [], sendSelected: [], waitForReply: [], steerSelected: [], cancelSelected: [],
   }
   listValue: FleetTargetView[] = []
   inspectValue: FleetTargetInspectView = {
@@ -122,7 +127,7 @@ class RecordingFleet extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): FleetDeliveryReceipt {
+  ): FleetSendReceipt {
     this.calls.sendSelected.push([selectionHandle, text, options])
     if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
@@ -130,7 +135,28 @@ class RecordingFleet extends FleetService {
         'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'] }
+    return {
+      sessionId: 'target',
+      messageId: 'send-message',
+      deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'],
+      replyReceipt: 'fr-send' as FleetSendReceipt['replyReceipt'],
+      replyReceiptExpiresAt: 3_000,
+    }
+  }
+
+  waitForReply(replyReceipt: string, options: FleetReplyWaitOptions): Promise<FleetReplyResult> {
+    this.calls.waitForReply.push([replyReceipt, options])
+    return Promise.resolve({
+      outcome: 'turn-ended',
+      sessionId: 'target',
+      messageId: 'send-message',
+      deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'],
+      turn: 1,
+      admitted: true,
+      assistantMessages: [],
+      omittedAssistantMessages: 0,
+      turnEndReason: { kind: 'completed' },
+    })
   }
 
   steerSelected(
@@ -178,9 +204,9 @@ async function harness(mode: toolPlugin.Config['controlMode'] = 'full') {
   return { ctx, fiber, fleet }
 }
 
-function fakeAgent(rawId: string): Agent {
+function fakeAgent(rawId: string, ctx?: Context): Agent {
   const session = Session.create(SessionId(rawId))
-  return { session } as Agent
+  return { session, ...(ctx === undefined ? {} : { ctx }) } as Agent
 }
 
 function call(
@@ -247,7 +273,7 @@ describe('Fleet tool namespace and configuration', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolPlugin) as Record<string, unknown>
     expect(unwrapped).toBe(toolPlugin)
-    expect(unwrapped.name).toBe('tool-dsh-supervisor')
+    expect(unwrapped.name).toBe('tool-dsh-cross-session')
     expect(unwrapped.inject).toEqual(['tools', 'fleet'])
     expect(new Set(toolPlugin.inject)).toEqual(new Set(['tools', 'fleet']))
     expect(toolPlugin.inject).toHaveLength(2)
@@ -308,6 +334,30 @@ describe('Fleet tool namespace and configuration', () => {
         expect(Object.keys(schema.parameters.properties ?? {})).not.toContain(forbidden)
       }
     }
+  })
+
+  it('registers the core Fleet tools only in the intended composition scope', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(RecordingFleet)
+
+    const withFleet = createScope(ctx, {})
+    const withoutFleet = createScope(ctx, {})
+    await withFleet.ctx.plugin(toolPlugin as any, { controlMode: 'full' })
+
+    const servedKey = {}
+    const unservedKey = {}
+    bindScopeParent(servedKey, scopeOf(withFleet.ctx) as object)
+    bindScopeParent(unservedKey, scopeOf(withoutFleet.ctx) as object)
+
+    expect(ctx.tools.schemas(servedKey).map(schema => schema.name).sort()).toEqual([...TOOL_NAMES].sort())
+    expect(ctx.tools.schemas(unservedKey)).toEqual([])
+    expect(ctx.tools.schemas()).toEqual([])
+
+    const result = await call(ctx, 'fleet_list', {}, { agent: fakeAgent('unserved', withoutFleet.ctx) })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
   })
 
   it('3. removes every registered tool on HMR and unload', async () => {
@@ -442,8 +492,17 @@ describe('Fleet write tools', () => {
       caller_session_id: 'forged-caller', sender_session_id: 'forged-sender', target_session_id: 'forged-target',
     }, { agent: owner }))
     expect(fleet.calls.sendSelected).toEqual([['fs_send', '  keep spacing  ', { callerAgent: owner, callerSessionId: 'caller' }]])
-    expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' })
-    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target. Delivery fd-send.')
+    expect(sent.value).toEqual({
+      sessionId: 'target',
+      messageId: 'send-message',
+      deliveryId: 'fd-send',
+      replyReceipt: 'fr-send',
+      replyReceiptExpiresAt: 3_000,
+    })
+    expect(text(sent)).toBe(
+      'Queued follow-up send-message for confirmed Fleet session target. Delivery fd-send. '
+        + 'Reply receipt fr-send expires at 3000; use fleet_wait when that optional Jobs Consumer is available.',
+    )
     expect(ctx.tools.get('fleet_send')?.presentCall?.({
       selection_handle: 'fs_send', text: 'secret body',
     })).toEqual({

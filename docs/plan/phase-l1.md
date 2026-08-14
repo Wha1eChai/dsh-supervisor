@@ -104,7 +104,7 @@ interface Config {
 - delegated + `ctx.get('subagents')` 存在 → `control: 'subagent'`，当前写入仍抛 `fleet-delegated-write-deferred`。
 - delegated + 无 subagents → `control: 'observe-only'`，写入抛 `fleet-observe-only`。
 - root → `control: 'direct'`，`send`=`followup`，`steer`=`steer`，`cancel`=`cancel({ kind: 'hook', reason: 'fleet-cancel' }, { keepInbox })`。
-- direct 消息：`createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'dsh-supervisor' } })`；confirmed-target selected `send` / `steer` 的 relay source 见 [phase-l2.4.md](phase-l2.4.md)。
+- direct 消息：`createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'dsh-cross-session' } })`；confirmed-target selected `send` / `steer` 的 relay source 见 [phase-l2.4.md](phase-l2.4.md)。
 - `subscribe`：监听 `agent/created`、`agent/status`、`agent/disposed`。监听必须挂在 `ctx.effect` / `ctx.on` 上，卸载即摘掉；Fleet listener 失败只记录，不向权威 Agent 事件传播。
 
 `blank`：无 `turn/start` 则为 true（与官方 list 语义对齐的简化版即可，测试钉死）。
@@ -122,7 +122,7 @@ interface Config {
 3. 带 `origin` / `parentSession` 的 ordinary runtime root 仍为 `kind: 'root'`、`control: 'direct'`，并保留 `parentSessionId`。
 4. 通过 `enter(child, owner)` / `announce(child)` 创建、且没有 lineage metadata 的 runtime child 为 `kind: 'delegated'`；有 `subagents` 时 `control === 'subagent'`，写入抛 `fleet-delegated-write-deferred`。
 5. 同类 runtime child 在无 `subagents` 时 `control === 'observe-only'`，写入抛 `fleet-observe-only`。
-6. `send` / `steer` 调用了对应 Agent 方法，且 message source 为 plugin `dsh-supervisor`。
+6. `send` / `steer` 调用了对应 Agent 方法，且 message source 为 plugin `dsh-cross-session`。
 7. `cancel` 使用 `hook` / `fleet-cancel`；`keepInbox` 传到 Agent。
 8. `callerSessionId === target` 时 send/steer/cancel 抛 `fleet-self-target`。
 9. 未知 id 抛 `fleet-not-found`。

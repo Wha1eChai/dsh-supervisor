@@ -21,7 +21,7 @@
 Direct `send` / `steer` 继续使用：
 
 ```ts
-{ kind: 'plugin', plugin: 'dsh-supervisor' }
+{ kind: 'plugin', plugin: 'dsh-cross-session' }
 ```
 
 没有 exact owning Agent 的 direct compatibility lane 不会被字符串 caller 身份伪装成 relay。没有新增 direct attributed overload。

@@ -1,16 +1,16 @@
-# dsh-supervisor
+# dsh-cross-session
 
 English | [中文](README.zh.md)
 
 A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
 
-> **Status: tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, and attributed confirmed-target relays. The Fleet service, authoritative runtime-ownership classification, and five tool Consumer definitions are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
+> **Status: `0.1.0-rc.1` target prerelease, tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service. The target prerelease uses the `next` dist-tag and is not a stable compatibility promise.
 
-This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
+This is an independent community project and is not affiliated with or endorsed by DeepSeek AI. It runs inside the existing DSH process and does not start a daemon, a second agent runtime, or a separate network port.
 
 ## Design
 
-DeepSeek Harness treats capabilities as hot-swappable plugin seams. `dsh-supervisor` follows the same structure:
+DeepSeek Harness treats capabilities as hot-swappable plugin seams. `dsh-cross-session` follows the same structure:
 
 ```text
 FleetService                  Service Definition (`ctx.fleet`)
@@ -36,14 +36,14 @@ See [docs/architecture.md](docs/architecture.md) for the complete constraints.
 
 - `list()` — list live Agents in the current DSH process;
 - `inspect()` — return a bounded, JSON-safe transcript summary;
-- `send()` — enqueue a plugin-sourced follow-up for a live root Agent;
-- `steer()` — steer a live root Agent;
-- `cancel()` — cancel a live root Agent with a stable Fleet cause;
+- `send()` — enqueue a plugin-sourced follow-up for a live root Agent; it wakes the target's work loop and may consume model and tool resources;
+- `steer()` — steer a live root Agent; it changes active work and may consume model and tool resources;
+- `cancel()` — cancel a live root Agent with a stable Fleet cause; it interrupts active work, but does not roll back already accepted model or tool work;
 - `subscribe()` — observe projected create/status/dispose events.
 
 Confirmed-target model `fleet_send` / `fleet_steer` use a versioned `fleet-relay` source. The exact caller Agent supplies `senderSessionId`; the Provider supplies an opaque `deliveryId`. The model-visible header encodes both values; the body starts after a fixed marker in a separate text block, is preserved as untrusted model input, and cannot override structured attribution.
 
-The separate `@wha1echai/dsh-supervisor/tool` entry registers:
+The separate `@wha1echai/dsh-cross-session/tool` entry registers:
 
 - `fleet_list` and `fleet_inspect` in every mode;
 - `fleet_send` and `fleet_steer` in `message` and `full` modes;
@@ -51,9 +51,11 @@ The separate `@wha1echai/dsh-supervisor/tool` entry registers:
 
 Mounting this Consumer makes its currently configured tools available to already-live Sessions through normal ToolRuntime composition on their next model request. It does not inject a synthetic chat message or rely on permanent system-prompt prose to announce Fleet.
 
-The direct Service API keeps `sessionId` as the stable routing identifier for trusted programmatic Consumers. Selected write receipts include an opaque `deliveryId`; they confirm inbox acceptance only, not completion or reply. Model tools use a confirmed-target protocol instead: `fleet_list` returns a caller-bound `targetRef`, `fleet_inspect` accepts that reference and may issue an exact-Agent-bound single-attempt `selectionHandle`, and write tools accept only the selection. Invalid, expired, mismatched, replaced, unloaded, or already-used handles fail closed and never authorize substituting another Session. Every Agent view still includes `sessionId`; any future Session-list UI must display it and provide a copy action.
+The direct Service API keeps `sessionId` as the stable routing identifier for trusted programmatic Consumers. Selected steer receipts include an opaque `deliveryId`; selected send also returns a caller-bound single-observer `replyReceipt`. Delivery still means inbox acceptance only. `waitForReply()` later observes the complete turn that claims that exact message without using Agent idle as proof or claiming strict message-to-message causality. Model tools use a confirmed-target protocol instead: `fleet_list` returns a caller-bound `targetRef`, `fleet_inspect` accepts that reference and may issue an exact-Agent-bound single-attempt `selectionHandle`, and write tools accept only the selection. Invalid, expired, mismatched, replaced, unloaded, or already-used handles fail closed and never authorize substituting another Session. Every Agent view still includes `sessionId`; any future Session-list UI must display it and provide a copy action.
 
 The default `controlMode` is `read-only`. All five confirmed-target tools pass the exact owning Agent object and derive its Session id for Provider cross-checking; model fields cannot supply caller identity, and agentless execution is rejected. Write authorization remains in `ctx.fleet`. Fleet classifies runtime roots by exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata do not affect `kind` or write authority. Delegated Agents remain read-only in L2.1; the Consumer never bypasses Fleet to call subagent APIs directly.
+
+The optional `@wha1echai/dsh-cross-session/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target. Mount this Consumer in the same host or agent-preset composition as the official Jobs Consumer; its scoped ToolRuntime registration then follows that composition.
 
 When the optional `sessionTitle` service is mounted, Fleet reads only an already logged title from the exact live Session and exposes it as a display field in list/inspect projections. Missing or unloaded title service leaves Fleet available without `title`; title never affects identity, routing, selection, ordering, filtering, or authorization. Inspect separately reports messages omitted by the tail limit and per-message `textTruncated` facts.
 
@@ -81,17 +83,17 @@ The first release line intentionally makes no compatibility promise across DSH r
 
 ## Install
 
-No npm release is published yet. Use a local checkout or a commit-pinned GitHub source installation.
+No npm release is published yet. The target first prerelease is `0.1.0-rc.1` on the `next` dist-tag. Until it is published, use a local checkout or a commit-pinned GitHub source installation. After publication, install the exact version rather than the bare package name.
 
 ### Local checkout
 
 ```sh
-git clone https://github.com/Wha1eChai/dsh-supervisor.git
-cd dsh-supervisor
+git clone https://github.com/Wha1eChai/dsh-cross-session.git
+cd dsh-cross-session
 pnpm install
 pnpm run build
 
-dsh plugin --profile web add /absolute/path/to/dsh-supervisor
+dsh plugin --profile web add /absolute/path/to/dsh-cross-session
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -99,8 +101,8 @@ dsh --profile web
 On PowerShell, use an isolated development home instead of changing an existing user profile:
 
 ```powershell
-$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-supervisor-home"
-dsh plugin --profile web add D:\coding\programs\dsh\dsh-supervisor
+$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-cross-session-home"
+dsh plugin --profile web add D:\coding\programs\dsh\dsh-cross-session
 dsh --profile web --dump-config
 dsh --profile web
 ```
@@ -110,30 +112,32 @@ dsh --profile web
 Pin a reviewed commit:
 
 ```sh
-dsh plugin --profile web add github:Wha1eChai/dsh-supervisor#<commit>
+dsh plugin --profile web add github:Wha1eChai/dsh-cross-session#<commit>
 ```
 
 Git installs run the package's `prepare` script to build TypeScript. pnpm 10 and later reject that script until the user explicitly allows the package in the profile's `pnpm-workspace.yaml`:
 
 ```yaml
 allowBuilds:
-  '@wha1echai/dsh-supervisor': true
+  '@wha1echai/dsh-cross-session': true
 ```
 
 Review the source and pin a commit before granting install-time execution permission. Re-run `dsh plugin add` after adding the allowance.
 
 ## Usage
 
-The Bundle installs both package entries. Its safe default exposes only `fleet_list` and `fleet_inspect`. To enable message or cancellation tools, override the complete `dsh-supervisor-tools` row in the profile's `cordis.patch.yml`:
+The Bundle installs the host-plane Fleet Provider and the core tool Consumer at its safe `read-only` default, exposing `fleet_list` and `fleet_inspect`. It does not install the optional reply-job Consumer. Mount `@wha1echai/dsh-cross-session/reply-job` in the same host or agent-preset composition as the official Jobs Consumer when `fleet_wait` is intended; scoped ToolRuntime registration keeps that optional tool inside the selected composition.
+
+To enable message or cancellation tools, override the complete `dsh-cross-session-tools` row in the profile's `cordis.patch.yml`:
 
 ```yaml
-- id: dsh-supervisor-tools
-  name: '@wha1echai/dsh-supervisor/tool'
+- id: dsh-cross-session-tools
+  name: '@wha1echai/dsh-cross-session/tool'
   config:
     controlMode: message # read-only | message | full
 ```
 
-Use `full` only in a profile where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
+`fleet_wait` can consume only a reply receipt returned by enabled `fleet_send`; starting its job also requires an official Jobs controller Consumer in the owner's composition. Use `full` only in a composition where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
 
 Other plugins may consume Fleet directly by declaring `fleet` as a required service:
 
@@ -158,7 +162,12 @@ pnpm run build
 pnpm pack
 ```
 
-The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using both built package entries. They also guard both namespace entries against a `default` export and verify Provider/Consumer unload behavior.
+The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using the built Provider, tool, and reply-job entries. They also guard all namespace entries against a `default` export and verify Provider/Consumer unload behavior. The packed-artifact gate checks tarball contents, declarations, Loader namespace unwrapping, and package self-reference metadata:
+
+```sh
+pnpm pack --pack-destination .pack-output/dev
+pnpm run check:packed -- .pack-output/dev
+```
 
 ## Roadmap / TODO
 
@@ -169,12 +178,13 @@ The tests use the real `ToolRuntime`, validate canonical values and model-facing
 - [x] **L2.2** — caller-bound target references and exact-Agent-bound single-attempt selections for fail-closed model writes.
 - [x] **L2.3** — optional log-backed title discovery and inspect omission/text-truncation fidelity.
 - [x] **L2.4** — versioned attributed confirmed-target relay with exact caller attribution and delivery correlation.
+- [x] **L2.5** — exact claimed-turn reply observation plus optional `ctx.jobs`-backed `fleet_wait` without busy-polling or target cancellation.
 - [ ] **L2b** — delegated-Session write API with exact parent authority through the public subagent seam.
 - [ ] **L3** — supervisor Agent preset that conditionally composes the existing Fleet, subagent, and workflow Consumers.
 - [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.
 - [ ] **L5 option** — optional Electron wrapper around a future supported surface.
 - [ ] **L6+** — future daemon and multi-runtime Fleet Providers.
-- [ ] Publish the first registry package after user-facing verification.
+- [ ] Publish `0.1.0-rc.1` on the `next` dist-tag after isolated source/tarball verification and user-facing validation.
 - [ ] Add compatibility CI for each supported DSH release candidate.
 
 Detailed phase boundaries are in [docs/plan/layers.md](docs/plan/layers.md).
@@ -190,7 +200,7 @@ Start at [docs/README.md](docs/README.md):
 
 ## Contributing
 
-Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, orchestration stays in `ctx.workflowEngine`, and model-visible capability follows the seams and Consumers actually mounted in the profile.
+Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, orchestration stays in `ctx.workflowEngine`, and model-visible capability follows the seams and Consumers actually mounted in the profile. See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [release and rollback](docs/release.md).
 
 ## License
 

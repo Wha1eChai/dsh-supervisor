@@ -4,6 +4,9 @@ import { SessionId, type SessionId as SessionIdType } from '@deepseek-ai/dsh-ses
 /** Opaque Provider-issued correlation identity for one Fleet relay delivery. */
 export type FleetDeliveryId = Branded<'FleetDeliveryId'>
 
+/** Opaque caller-bound capability for observing one selected follow-up turn. */
+export type FleetReplyReceipt = Branded<'FleetReplyReceipt'>
+
 /** Versioned durable attribution for a confirmed Fleet message relay. */
 export interface FleetRelayMessageSource {
   readonly kind: 'fleet-relay'

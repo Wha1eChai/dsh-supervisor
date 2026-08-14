@@ -1,6 +1,7 @@
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { FleetDeliveryId } from './relay.js'
+import type { TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { FleetDeliveryId, FleetReplyReceipt } from './relay.js'
 
 /** Filters applied to the process-local live-agent listing. */
 export interface FleetListFilter {
@@ -114,6 +115,54 @@ export interface FleetDeliveryReceipt {
   deliveryId: FleetDeliveryId
 }
 
+/** Receipt for one selected follow-up whose owning turn can be observed later. */
+export interface FleetSendReceipt extends FleetDeliveryReceipt {
+  /** Caller-bound single-observer capability accepted by `waitForReply`. */
+  replyReceipt: FleetReplyReceipt
+  /** Last time a caller may begin observing this reply. */
+  replyReceiptExpiresAt: number
+}
+
+/** Exact caller identity and cancellation for one reply observation. */
+export interface FleetReplyWaitOptions extends FleetRequiredCallerOptions {
+  /** Cancels only this observation; it never cancels or steers the target Agent. */
+  signal?: AbortSignal
+}
+
+/** One bounded text-bearing assistant message from the claimed turn. */
+export interface FleetReplyMessage {
+  messageId: string
+  step: number
+  text: string
+  textTruncated: boolean
+}
+
+interface FleetReplyResultBase {
+  sessionId: string
+  messageId: string
+  deliveryId: FleetDeliveryId
+  assistantMessages: FleetReplyMessage[]
+  omittedAssistantMessages: number
+}
+
+/** Turn-level result for the exact turn that claimed a selected Fleet follow-up. */
+export type FleetReplyResult = (FleetReplyResultBase & {
+  outcome: 'turn-ended'
+  turn: number
+  /** Whether the original relay message itself entered the durable turn surface. */
+  admitted: boolean
+  turnEndReason: TurnEndReason
+}) | (FleetReplyResultBase & {
+  outcome: 'discarded'
+  assistantMessages: []
+  omittedAssistantMessages: 0
+}) | (FleetReplyResultBase & {
+  outcome: 'target-unavailable'
+  /** Present when the relay was claimed before the exact target disappeared. */
+  turn?: number
+  admitted: boolean
+})
+
 /** Options for canceling through one confirmed target selection. */
 export interface FleetSelectedCancelOptions extends FleetRequiredCallerOptions {
   keepInbox?: boolean
@@ -139,6 +188,8 @@ export type FleetErrorCode =
   | 'fleet-caller-unavailable'
   | 'fleet-target-reference-invalid'
   | 'fleet-selection-invalid'
+  | 'fleet-reply-invalid'
+  | 'fleet-reply-capacity'
 
 /** Error with stable machine-readable Fleet safety metadata. */
 export class FleetError extends HarnessError {

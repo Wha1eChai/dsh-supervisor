@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a focused improvement to dsh-cross-session.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What same-process problem should this solve, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: same-process-relevance
+    attributes:
+      label: Same-process relevance
+      description: Explain how the request works within one running DSH process without implying remote, daemon, or multi-runtime support.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the public service, Consumer, tool, or documentation behavior you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe existing Fleet, subagent, workflow, or profile composition options that do not meet the use case.
+    validations:
+      required: true
+  - type: checkboxes
+    id: future-transport
+    attributes:
+      label: Scope signal
+      options:
+        - label: This request implies future remote, cross-process, daemon, multi-runtime, or other transport behavior.
+          required: false
