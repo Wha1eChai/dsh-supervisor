@@ -25,6 +25,7 @@ const FLEET_AGENT_PROPERTIES = {
   status: { type: 'string', enum: ['idle', 'running'], required: true },
   kind: { type: 'string', enum: ['root', 'delegated'], required: true },
   control: { type: 'string', enum: ['direct', 'subagent', 'observe-only'], required: true },
+  title: { type: 'string' },
   parentSessionId: { type: 'string' },
   cwd: { type: 'string' },
   blank: { type: 'boolean', required: true },
@@ -45,6 +46,7 @@ const FLEET_MESSAGE_VALUE_SCHEMA = {
     messageId: { type: 'string', required: true },
     role: { type: 'string', enum: ['user', 'assistant'], required: true },
     text: { type: 'string', required: true },
+    textTruncated: { type: 'boolean', required: true },
   },
 } as const
 
@@ -53,6 +55,7 @@ const FLEET_INSPECT_AGENT_VALUE_SCHEMA = {
   additionalProperties: false,
   properties: {
     ...FLEET_AGENT_PROPERTIES,
+    omittedMessages: { type: 'integer', required: true },
     tailMessages: {
       type: 'array',
       items: FLEET_MESSAGE_VALUE_SCHEMA,

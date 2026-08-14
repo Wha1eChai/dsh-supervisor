@@ -43,6 +43,8 @@ export interface FleetAgentView {
   /** AgentRegistry runtime ownership, independent of durable Session lineage. */
   kind: FleetAgentKind
   control: FleetControl
+  /** Latest logged title, when the optional session-title service is available. */
+  title?: string
   /** Durable Session lineage metadata, independent of runtime ownership. */
   parentSessionId?: string
   cwd?: string
@@ -56,10 +58,14 @@ export interface FleetMessageSummary {
   messageId: string
   role: 'user' | 'assistant'
   text: string
+  /** Whether this message's text exceeded the configured per-message limit. */
+  textTruncated: boolean
 }
 
 /** JSON-safe detailed projection of one process-local live agent. */
 export interface FleetInspectView extends FleetAgentView {
+  /** Number of eligible user/assistant messages omitted by the tail bound. */
+  omittedMessages: number
   tailMessages: FleetMessageSummary[]
 }
 

@@ -1,9 +1,21 @@
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as plugin from '../src/index.js'
 import * as toolPlugin from '../src/tool.js'
 
 describe('package entry point', () => {
+  it('declares the optional rc.6 session-title peer without changing exports', async () => {
+    const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+      peerDependencies: Record<string, string>
+      peerDependenciesMeta: Record<string, { optional?: boolean }>
+      exports: Record<string, unknown>
+    }
+    expect(packageJson.peerDependencies['@deepseek-ai/dsh-session-title']).toBe('0.1.0-rc.6')
+    expect(packageJson.peerDependenciesMeta['@deepseek-ai/dsh-session-title']).toEqual({ optional: true })
+    expect(packageJson.exports).toMatchObject({ '.': expect.any(Object), './tool': expect.any(Object) })
+  })
+
   it('keeps the Loader-safe namespace plugin shape', () => {
     expect('default' in plugin).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader

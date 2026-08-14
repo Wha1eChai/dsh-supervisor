@@ -35,9 +35,11 @@ const RUNNING_ROOT: FleetAgentView = {
   blank: false,
   queueCount: 2,
   updatedAt: 123,
+  title: 'Build Fleet',
 }
 const DELEGATED: FleetAgentView = {
   sessionId: 'child',
+  title: 'Child work',
   status: 'idle',
   kind: 'delegated',
   control: 'subagent',
@@ -70,7 +72,7 @@ class RecordingFleet extends FleetService {
   }
   listValue: FleetTargetView[] = []
   inspectValue: FleetTargetInspectView = {
-    agent: { ...RUNNING_ROOT, tailMessages: [] },
+    agent: { ...RUNNING_ROOT, omittedMessages: 0, tailMessages: [] },
     selection: { handle: 'fs_target', expiresAt: 2_000 },
   }
   badListOutput: 'extra' | 'type' | undefined
@@ -348,9 +350,10 @@ describe('Fleet read tools', () => {
     fleet.inspectValue = {
       agent: {
         ...RUNNING_ROOT,
+        omittedMessages: 0,
         tailMessages: [
-          { messageId: 'user-1', role: 'user', text: 'question' },
-          { messageId: 'assistant-1', role: 'assistant', text: 'answer' },
+          { messageId: 'user-1', role: 'user', text: 'question', textTruncated: false },
+          { messageId: 'assistant-1', role: 'assistant', text: 'answer', textTruncated: false },
         ],
       },
       selection: { handle: 'fs_target', expiresAt: 2_000 },
@@ -616,7 +619,8 @@ describe('Fleet tool execution policy and schemas', () => {
     fleet.inspectValue = {
       agent: {
         ...DELEGATED,
-        tailMessages: [{ messageId: 'message', role: 'assistant', text: 'done' }],
+        omittedMessages: 0,
+        tailMessages: [{ messageId: 'message', role: 'assistant', text: 'done', textTruncated: false }],
       },
     }
 
