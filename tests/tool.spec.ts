@@ -312,13 +312,18 @@ describe('Fleet tool namespace and configuration', () => {
       selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       text: { type: 'string', description: 'Follow-up message text.' },
     }, ['selection_handle', 'text']))
-    expect(schemas.get('fleet_send')?.description).toContain('may consume model and tool resources')
+    expect(schemas.get('fleet_send')?.description).toContain('next turn')
+    expect(schemas.get('fleet_send')?.description).toContain('wait for its current turn to end')
+    expect(schemas.get('fleet_send')?.description).toContain('May consume model and tool resources')
     expect(schemas.get('fleet_send')?.description).toContain('synchronous inbox acceptance only')
     expect(schemas.get('fleet_steer')?.parameters).toEqual(parameterSchema({
       selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       text: { type: 'string', description: 'Steering message text.' },
     }, ['selection_handle', 'text']))
-    expect(schemas.get('fleet_steer')?.description).toContain('may consume model and tool resources')
+    expect(schemas.get('fleet_steer')?.description).toContain('next step boundary inside the current turn')
+    expect(schemas.get('fleet_steer')?.description).toContain('if idle, wake it')
+    expect(schemas.get('fleet_steer')?.description).toContain('Use fleet_send')
+    expect(schemas.get('fleet_steer')?.description).toContain('May consume model and tool resources')
     expect(schemas.get('fleet_steer')?.description).toContain('synchronous inbox acceptance only')
     expect(schemas.get('fleet_cancel')?.parameters).toEqual(parameterSchema({
       selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
