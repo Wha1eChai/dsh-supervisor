@@ -2,95 +2,197 @@
 
 English | [中文](README.zh.md)
 
-A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
+Let live [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Sessions discover, message, and coordinate with each other inside the same running DSH process.
 
-> **Status: `0.1.0-rc.1` prerelease, tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service. The prerelease uses the `next` dist-tag and is not a stable compatibility promise.
+- Runs inside the existing `dsh` runtime
+- Starts no daemon, second agent runtime, or separate network port
+- Installs as a normal DSH plugin
 
-This is an independent community project and is not affiliated with or endorsed by DeepSeek AI. It runs inside the existing DSH process and does not start a daemon, a second agent runtime, or a separate network port.
+**Current release:** `@wha1echai/dsh-cross-session@0.1.0-rc.1` for DSH `0.1.0-rc.6`.
 
-## Design
+This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
 
-DeepSeek Harness treats capabilities as hot-swappable plugin seams. `dsh-cross-session` follows the same structure:
+## Why cross-Session communication?
 
-```text
-FleetService                  Service Definition (`ctx.fleet`)
-InProcessFleetProvider        Same-process Provider (`ctx.agents`)
-fleet_* tools                 Current Consumer (`ctx.fleet` + `ctx.tools`)
-supervisor preset             Planned Consumer (L3)
-profile / surface / transport Future Consumers (L4+)
-```
+A Session often already has the context you need: an implementation in progress, an investigation with useful evidence, or a review that should stay separate from the main conversation. Copying that history into another chat can lose context and creates more coordination work.
 
-The Fleet tool Consumer never imports the Agent or Subagent APIs and does not access `ctx.agents`, `ctx.sessions`, or `ctx.subagents`. It registers only `fleet_*` tools. The plugin does not replace or duplicate the existing subagent or workflow capabilities:
+`dsh-cross-session` lets one live Session work with another without creating a second harness:
 
-- delegated-Session continuation and interruption belong to the public `ctx.subagents` seam and its official Consumer;
-- orchestration belongs to the public `ctx.workflowEngine` seam and its official Consumer;
-- Fleet adds a same-process view of live Sessions and limited root-Session control.
+- **Continue work where the context already exists.** Send follow-up work to the Session that owns the task.
+- **Coordinate parallel work.** Check another Session's state, add direction, and observe the resulting turn.
+- **Keep responsibilities separate.** Use dedicated Sessions for implementation, review, research, or long-running work while they remain in one DSH runtime.
 
-Subagent and workflow tools are optional profile composition. They are model-visible only when their corresponding public seam and Consumer are mounted; Fleet does not advertise unavailable capabilities.
+## What it can do
 
-See [docs/architecture.md](docs/architecture.md) for the complete constraints.
+| Action | What it means | Tool |
+|---|---|---|
+| Discover | List live Sessions in the current `dsh` process | `fleet_list` |
+| Inspect | Read a bounded summary of another live Session | `fleet_inspect` |
+| Send | Queue follow-up work for the target's next turn | `fleet_send` |
+| Steer | Change direction at the target's next step boundary | `fleet_steer` |
+| Wait | Observe the completed turn that claimed a sent message | `fleet_wait` |
+| Cancel | Stop active root-Session work when explicitly enabled | `fleet_cancel` |
 
-## Current capabilities
+**Send vs. steer:** use `fleet_send` when work should wait for the target's next turn. Use `fleet_steer` to change the direction of its current turn at the next step boundary. If the target is idle, steering wakes it and begins a turn with that input.
 
-`ctx.fleet` provides:
+## Quick start
 
-- `list()` — list live Agents in the current DSH process;
-- `inspect()` — return a bounded, JSON-safe transcript summary;
-- `send()` — enqueue a plugin-sourced follow-up for a live root Agent; it wakes the target's work loop and may consume model and tool resources;
-- `steer()` — steer a live root Agent; it changes active work and may consume model and tool resources;
-- `cancel()` — cancel a live root Agent with a stable Fleet cause; it interrupts active work, but does not roll back already accepted model or tool work;
-- `subscribe()` — observe projected create/status/dispose events.
-
-Confirmed-target model `fleet_send` / `fleet_steer` use a versioned `fleet-relay` source. The exact caller Agent supplies `senderSessionId`; the Provider supplies an opaque `deliveryId`. The model-visible header encodes both values; the body starts after a fixed marker in a separate text block, is preserved as untrusted model input, and cannot override structured attribution.
-
-The separate `@wha1echai/dsh-cross-session/tool` entry registers:
-
-- `fleet_list` and `fleet_inspect` in every mode;
-- `fleet_send` and `fleet_steer` in `message` and `full` modes;
-- `fleet_cancel` only in `full` mode.
-
-Mounting this Consumer makes its currently configured tools available to already-live Sessions through normal ToolRuntime composition on their next model request. It does not inject a synthetic chat message or rely on permanent system-prompt prose to announce Fleet.
-
-The direct Service API keeps `sessionId` as the stable routing identifier for trusted programmatic Consumers. Selected steer receipts include an opaque `deliveryId`; selected send also returns a caller-bound single-observer `replyReceipt`. Delivery still means inbox acceptance only. `waitForReply()` later observes the complete turn that claims that exact message without using Agent idle as proof or claiming strict message-to-message causality. Model tools use a confirmed-target protocol instead: `fleet_list` returns a caller-bound `targetRef`, `fleet_inspect` accepts that reference and may issue an exact-Agent-bound single-attempt `selectionHandle`, and write tools accept only the selection. Invalid, expired, mismatched, replaced, unloaded, or already-used handles fail closed and never authorize substituting another Session. Every Agent view still includes `sessionId`; any future Session-list UI must display it and provide a copy action.
-
-The default `controlMode` is `read-only`. All five confirmed-target tools pass the exact owning Agent object and derive its Session id for Provider cross-checking; model fields cannot supply caller identity, and agentless execution is rejected. Write authorization remains in `ctx.fleet`. Fleet classifies runtime roots by exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata do not affect `kind` or write authority. Delegated Agents remain read-only in L2.1; the Consumer never bypasses Fleet to call subagent APIs directly.
-
-The optional `@wha1echai/dsh-cross-session/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target. Mount this Consumer in the same host or agent-preset composition as the official Jobs Consumer; its scoped ToolRuntime registration then follows that composition.
-
-When the optional `sessionTitle` service is mounted, Fleet reads only an already logged title from the exact live Session and exposes it as a display field in list/inspect projections. Missing or unloaded title service leaves Fleet available without `title`; title never affects identity, routing, selection, ordering, filtering, or authorization. Inspect separately reports messages omitted by the tail limit and per-message `textTruncated` facts.
-
-API, configuration, tools, and error codes are documented in [docs/reference/fleet.md](docs/reference/fleet.md).
-
-## Current scope
-
-The in-process Provider sees live Sessions only in the same running DSH runtime, meaning the same `dsh` process. The current release does not provide:
-
-- cross-process or multi-runtime discovery and control;
-- cross-terminal or cross-device routing;
-- local-to-server control;
-- remote Web, gateway, or daemon support;
-- a multi-Session Web or desktop UI.
-
-The `web` profile used below is an existing DSH host for installation and development. It does not mean that this plugin supplies remote Web support or a supervisor UI. Web may become a future first-class surface, with Electron as an optional wrapper, but both remain secondary to same-runtime communication.
-
-## Requirements
-
-- Node.js `^22.19.0` or `>=24.0.0`
-- pnpm `11.7.0` for repository development
-- `@deepseek-ai/dsh@0.1.0-rc.6`
-
-The first release line intentionally makes no compatibility promise across DSH release candidates.
-
-## Install
-
-Install the first prerelease by exact version or through the `next` dist-tag. npm requires every package to retain `latest`; because this is the package's only published version, `latest` currently also resolves to `0.1.0-rc.1`. Prefer the explicit version or `next` so installation intent remains clear.
+### 1. Install the prerelease
 
 ```sh
 dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
 dsh --profile web --dump-config
 ```
 
-Use an isolated `DSH_HOME` when evaluating the package without changing an existing profile. Local checkout and commit-pinned GitHub installations remain available below.
+Use an isolated `DSH_HOME` when evaluating the plugin without changing an existing profile.
+
+npm requires every package to retain `latest`. Because this is currently the only published version, both `latest` and `next` resolve to `0.1.0-rc.1`; using the exact version or `next` makes the prerelease intent explicit.
+
+### 2. Enable messaging
+
+The Bundle defaults to read-only discovery. Add this to the profile's `cordis.patch.yml` to enable `fleet_send` and `fleet_steer`:
+
+```yaml
+- id: dsh-cross-session-tools
+  name: '@wha1echai/dsh-cross-session/tool'
+  config:
+    controlMode: message
+```
+
+Tool visibility modes:
+
+| `controlMode` | Available tools |
+|---|---|
+| `read-only` | `fleet_list`, `fleet_inspect` |
+| `message` | Read-only tools plus `fleet_send`, `fleet_steer` |
+| `full` | Message tools plus `fleet_cancel` |
+
+Use `full` only where model access to cancellation is intended. Optional reply waiting is configured with the official Jobs tools in [Waiting for a reply](#waiting-for-a-reply).
+
+### 3. Start DSH
+
+```sh
+dsh --profile web
+```
+
+Open two live root Sessions in that runtime. The plugin uses the same process as the Web profile; if DSH listens on port 3080, the plugin does not open another port.
+
+## Try it
+
+In the target Session:
+
+```text
+When contacted through Fleet, summarize the request, complete it normally,
+and reply with a short result.
+```
+
+In the calling Session:
+
+```text
+Find another live root Session, inspect it, and send it a small task.
+If fleet_wait is available, wait for the turn that receives the message.
+```
+
+The expected flow is:
+
+```text
+caller discovers target
+  → caller inspects and confirms it
+  → target receives follow-up work
+  → target completes its next turn
+  → caller optionally observes the claimed turn through fleet_wait
+```
+
+## Operational safety
+
+- `fleet_send` and `fleet_steer` can start model requests and tool calls, so they may consume model and tool resources.
+- `fleet_cancel` interrupts active work but cannot roll back work already accepted by a model or tool.
+- Enable write modes only in agent compositions that should receive them.
+- `controlMode` controls model-visible tools; it does not replace DSH approval, `tools/pre-execute`, or `ctx.tools.guard()` policy.
+
+See the [Fleet reference](docs/reference/fleet.md) for complete side-effect and late-abort semantics.
+
+## Confirmed targeting
+
+Model tools do not write directly to an arbitrary Session ID. They follow a short confirmation flow:
+
+```text
+fleet_list
+  → choose a live target
+
+fleet_inspect
+  → confirm the exact target
+
+fleet_send / fleet_steer / fleet_cancel
+  → act on the confirmed selection
+```
+
+Target references and selections are short-lived, caller-bound, and fail closed. A selection cannot silently switch to another Session if the target disappears, is replaced, expires, or the Provider unloads. Write selections are single-attempt.
+
+Trusted programmatic Consumers can still use `sessionId` through the direct `ctx.fleet` Service API. The confirmed-target flow is the model-facing safety path.
+
+## Waiting for a reply
+
+`fleet_send` returns a caller-bound reply receipt. The optional reply-job Consumer adds `fleet_wait`, which starts an owner-scoped DSH Job and observes the complete turn that claimed the exact sent message.
+
+Mount the Consumer in the same composition scope as the official Jobs tool Consumer. In a Web profile that uses agent presets, copy a shipped preset to a user-owned preset, add this row beside its `@deepseek-ai/dsh-tool-jobs` row, and select that preset for the calling Session:
+
+```yaml
+- id: dsh-cross-session-reply-job
+  name: '@wha1echai/dsh-cross-session/reply-job'
+```
+
+User-owned presets normally live under `$DSH_HOME/.agent-presets/<id>/agent.cordis.yml`. Do not edit the preset files shipped inside the DSH installation, and do not mount reply-job globally when the official Jobs tools are preset-scoped. Tool visibility follows the Cordis context where each Consumer registers.
+
+The result belongs to the claiming turn. It does not claim that every assistant token in that turn was caused exclusively by one message.
+
+Timeout, abort, or job cancellation stops observation only. It never cancels, steers, or substitutes the target Session. The official Jobs capability continues to own job output, listing, cancellation, and completion notices.
+
+## Scope
+
+### Supported now
+
+- live Sessions in one running `dsh` process;
+- root-Session discovery and bounded inspection;
+- confirmed send, steer, and optional cancel;
+- exact claimed-turn reply observation;
+- optional display titles already recorded by DSH;
+- normal DSH Web, CLI, or other host compositions.
+
+### Not provided
+
+- a second harness, agent runtime, or daemon;
+- a separate network port;
+- cross-process, cross-device, or multi-runtime communication;
+- remote-control gateway behavior;
+- a dedicated multi-Session Web or desktop UI;
+- delegated-Session writes, which remain future work through the official subagent capability.
+
+## How it fits into DSH
+
+```text
+Model tools ───────┐
+Future UI ─────────┼──> FleetService (`ctx.fleet`) <── InProcessFleetProvider
+Other plugins ─────┘                                      │
+                                                          └── live Agent registry
+```
+
+Consumers depend on `ctx.fleet`; they do not call Agent methods directly. The current Provider operates on live Agents in the same process. Delegated-Session control remains owned by `ctx.subagents`, orchestration remains owned by `ctx.workflowEngine`, and background lifecycle remains owned by `ctx.jobs`.
+
+See [the architecture](docs/architecture.md) and [Fleet reference](docs/reference/fleet.md) for lifecycle rules, configuration limits, APIs, error codes, and extension points.
+
+## Compatibility
+
+| Component | Supported version |
+|---|---|
+| `dsh-cross-session` | `0.1.0-rc.1` |
+| DeepSeek Harness | `0.1.0-rc.6` |
+| Node.js | `^22.19.0` or `>=24.0.0` |
+| Repository package manager | pnpm `11.7.0` |
+
+Release candidates are pinned intentionally. Compatibility with later DSH versions is not implied until tested.
+
+## Other installation options
 
 ### Local checkout
 
@@ -101,63 +203,22 @@ pnpm install
 pnpm run build
 
 dsh plugin --profile web add /absolute/path/to/dsh-cross-session
-dsh --profile web --dump-config
-dsh --profile web
 ```
 
-On PowerShell, use an isolated development home instead of changing an existing user profile:
-
-```powershell
-$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-cross-session-home"
-dsh plugin --profile web add D:\coding\programs\dsh\dsh-cross-session
-dsh --profile web --dump-config
-dsh --profile web
-```
-
-### GitHub source
-
-Pin a reviewed commit:
+### Commit-pinned GitHub source
 
 ```sh
 dsh plugin --profile web add github:Wha1eChai/dsh-cross-session#<commit>
 ```
 
-Git installs run the package's `prepare` script to build TypeScript. pnpm 10 and later reject that script until the user explicitly allows the package in the profile's `pnpm-workspace.yaml`:
+Git installs run `prepare` to build TypeScript. pnpm 10 and later require explicit permission in the profile's `pnpm-workspace.yaml`:
 
 ```yaml
 allowBuilds:
   '@wha1echai/dsh-cross-session': true
 ```
 
-Review the source and pin a commit before granting install-time execution permission. Re-run `dsh plugin add` after adding the allowance.
-
-## Usage
-
-The Bundle installs the host-plane Fleet Provider and the core tool Consumer at its safe `read-only` default, exposing `fleet_list` and `fleet_inspect`. It does not install the optional reply-job Consumer. Mount `@wha1echai/dsh-cross-session/reply-job` in the same host or agent-preset composition as the official Jobs Consumer when `fleet_wait` is intended; scoped ToolRuntime registration keeps that optional tool inside the selected composition.
-
-To enable message or cancellation tools, override the complete `dsh-cross-session-tools` row in the profile's `cordis.patch.yml`:
-
-```yaml
-- id: dsh-cross-session-tools
-  name: '@wha1echai/dsh-cross-session/tool'
-  config:
-    controlMode: message # read-only | message | full
-```
-
-`fleet_wait` can consume only a reply receipt returned by enabled `fleet_send`; starting its job also requires an official Jobs controller Consumer in the owner's composition. Use `full` only in a composition where model access to cancellation is intended. `controlMode` selects tool visibility; it does not replace `tools/pre-execute`, approval, or `ctx.tools.guard()` policy.
-
-Other plugins may consume Fleet directly by declaring `fleet` as a required service:
-
-```ts
-export const inject = ['fleet']
-
-export function apply(ctx: Context) {
-  const live = ctx.fleet.list()
-  // Build a future command or UI adapter from the same-runtime JSON-safe view.
-}
-```
-
-Such Consumers are separate plugins and are not included with the current package. Any future transport or remote Consumer also requires separate identity, transport, and permission design; the current `sessionId` must not be treated as a global remote address.
+Review and pin the source before granting install-time execution permission. If the first add is rejected, add the exact package key printed by pnpm to the profile's `pnpm-workspace.yaml`, then rerun the same `dsh plugin --profile web add` command.
 
 ## Development
 
@@ -166,49 +227,26 @@ pnpm install
 pnpm run typecheck
 pnpm test
 pnpm run build
-pnpm pack
-```
-
-The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using the built Provider, tool, and reply-job entries. They also guard all namespace entries against a `default` export and verify Provider/Consumer unload behavior. The packed-artifact gate checks tarball contents, declarations, Loader namespace unwrapping, and package self-reference metadata:
-
-```sh
 pnpm pack --pack-destination .pack-output/dev
 pnpm run check:packed -- .pack-output/dev
 ```
 
-## Roadmap / TODO
+Tests use the real DSH `ToolRuntime` and Loader composition. They cover targeting, lifecycle invalidation, relay attribution, reply observation, scoped tool visibility, unload behavior, and packed JavaScript/declaration entries.
 
-- [x] **L0** — installable Bundle, build, package metadata, real Loader smoke.
-- [x] **L1** — `FleetService`, in-process Provider, lifecycle isolation, keyless tests.
-- [x] **L2** — `fleet_list`, `fleet_inspect`, `fleet_send`, `fleet_steer`, and `fleet_cancel` tool Consumer.
-- [x] **L2.1** — authoritative runtime root/delegated classification through exact Agent membership in `ctx.agents.roots()`, independent of durable lineage metadata.
-- [x] **L2.2** — caller-bound target references and exact-Agent-bound single-attempt selections for fail-closed model writes.
-- [x] **L2.3** — optional log-backed title discovery and inspect omission/text-truncation fidelity.
-- [x] **L2.4** — versioned attributed confirmed-target relay with exact caller attribution and delivery correlation.
-- [x] **L2.5** — exact claimed-turn reply observation plus optional `ctx.jobs`-backed `fleet_wait` without busy-polling or target cancellation.
-- [ ] **L2b** — delegated-Session write API with exact parent authority through the public subagent seam.
-- [ ] **L3** — supervisor Agent preset that conditionally composes the existing Fleet, subagent, and workflow Consumers.
-- [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.
-- [ ] **L5 option** — optional Electron wrapper around a future supported surface.
-- [ ] **L6+** — future daemon and multi-runtime Fleet Providers.
-- **Registry prerelease** — `0.1.0-rc.1` on the `next` dist-tag after isolated source/tarball verification and user-facing validation.
-- [ ] Add compatibility CI for each supported DSH release candidate.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [release and rollback](docs/release.md).
 
-Detailed phase boundaries are in [docs/plan/layers.md](docs/plan/layers.md).
+## Roadmap
 
-## Documentation
+- delegated-Session messaging through the official subagent capability;
+- clearer supervisor-oriented presets that compose existing DSH capabilities;
+- a first-class multi-Session Web experience;
+- additional Providers for carefully designed multi-runtime communication;
+- compatibility testing for later DSH release candidates.
 
-Start at [docs/README.md](docs/README.md):
+Detailed delivered milestones, future layers, and non-goals are maintained in [docs/plan/](docs/plan/README.md).
 
-- [Product boundaries](docs/product.md)
-- [Architecture](docs/architecture.md)
-- [Locked decisions](docs/plan/decisions.md)
-- [Fleet API reference](docs/reference/fleet.md)
+## Project status
 
-## Contributing
+`dsh-cross-session` is an independent community project. It is not affiliated with or endorsed by DeepSeek AI.
 
-Bug reports, design feedback, and narrowly scoped pull requests are welcome through this repository. Preserve the capability-seam design: Consumers depend on `ctx.fleet`, delegated writes go through a future Fleet API backed by `ctx.subagents`, orchestration stays in `ctx.workflowEngine`, and model-visible capability follows the seams and Consumers actually mounted in the profile. See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [release and rollback](docs/release.md).
-
-## License
-
-[MIT](LICENSE)
+Licensed under the [MIT License](LICENSE).
