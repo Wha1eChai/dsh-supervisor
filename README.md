@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
 
-> **Status: `0.1.0-rc.1` target prerelease, tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service. The target prerelease uses the `next` dist-tag and is not a stable compatibility promise.
+> **Status: `0.1.0-rc.1` prerelease, tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service. The prerelease uses the `next` dist-tag and is not a stable compatibility promise.
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI. It runs inside the existing DSH process and does not start a daemon, a second agent runtime, or a separate network port.
 
@@ -83,7 +83,14 @@ The first release line intentionally makes no compatibility promise across DSH r
 
 ## Install
 
-No npm release is published yet. The target first prerelease is `0.1.0-rc.1` on the `next` dist-tag. Until it is published, use a local checkout or a commit-pinned GitHub source installation. After publication, install the exact version rather than the bare package name.
+Install the first prerelease by exact version or through the `next` dist-tag. A bare package install selects npm's `latest` tag and is not a prerelease install.
+
+```sh
+dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
+dsh --profile web --dump-config
+```
+
+Use an isolated `DSH_HOME` when evaluating the package without changing an existing profile. Local checkout and commit-pinned GitHub installations remain available below.
 
 ### Local checkout
 
@@ -184,7 +191,7 @@ pnpm run check:packed -- .pack-output/dev
 - [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.
 - [ ] **L5 option** — optional Electron wrapper around a future supported surface.
 - [ ] **L6+** — future daemon and multi-runtime Fleet Providers.
-- [ ] Publish `0.1.0-rc.1` on the `next` dist-tag after isolated source/tarball verification and user-facing validation.
+- **Registry prerelease** — `0.1.0-rc.1` on the `next` dist-tag after isolated source/tarball verification and user-facing validation.
 - [ ] Add compatibility CI for each supported DSH release candidate.
 
 Detailed phase boundaries are in [docs/plan/layers.md](docs/plan/layers.md).
