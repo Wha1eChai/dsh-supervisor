@@ -2,95 +2,201 @@
 
 [English](README.md) | 中文
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区插件，当前专注于同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供可替换的 `ctx.fleet` 服务，并通过该服务提供模型可调用的 `fleet_*` 工具。
+让同一运行中 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的多个 live Session 互相发现、发送消息并协调工作。
 
-> **状态：`0.1.0-rc.1` prerelease、Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。该 prerelease 使用 `next` dist-tag，不承诺 stable 兼容性。
+- 运行在现有 `dsh` runtime 内
+- 不启动 daemon、第二套 Agent runtime 或独立网络端口
+- 作为普通 DSH 插件安装
 
-这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。它运行在现有 DSH 进程内，不启动 daemon、第二套 Agent runtime 或独立网络端口。
+**当前版本：** `@wha1echai/dsh-cross-session@0.1.0-rc.1`，适配 DSH `0.1.0-rc.6`。
 
-## 设计
+这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
-DeepSeek Harness 把能力设计成可热替换的插件缝。本项目遵循相同结构：
+![调用 Session 通过 Fleet 列出、查看并向 README 评审 Session 发送消息，随后观察认领消息的 turn。](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/63602642e948d20e3fd7a52ee4f8f8bb64261a28/docs/assets/cross-session-readme-review.png)
 
-```text
-FleetService                  Service Definition（ctx.fleet）
-InProcessFleetProvider        同进程 Provider（ctx.agents）
-fleet_* tools                 当前 Consumer（ctx.fleet + ctx.tools）
-supervisor preset             计划中的 Consumer（L3）
-profile / surface / transport 未来 Consumer（L4+）
-```
+*为便于阅读而合成的两个真实 DSH Session 视图。插件提供 Fleet 通信工具，不提供分屏或多 Session UI。*
 
-Fleet 工具 Consumer 不导入 Agent 或 Subagent API，也不访问 `ctx.agents`、`ctx.sessions` 或 `ctx.subagents`，并且只注册 `fleet_*` 工具。本插件不替换或复制已有的 subagent、workflow 能力：
+## 为什么需要跨 Session 通信？
 
-- delegated Session 的继续写入和中断属于公开 `ctx.subagents` seam 及其官方 Consumer；
-- 编排属于公开 `ctx.workflowEngine` seam 及其官方 Consumer；
-- Fleet 只补同一进程内的 live Session 视图和有限 root Session 控制。
+一个 Session 往往已经拥有你需要的上下文：正在进行的实现、带有关键证据的调查，或应与主对话保持分离的评审。把这些历史复制到新聊天里可能丢失上下文，也会增加协调成本。
 
-Subagent 和 workflow 工具属于可选 profile 组合。只有对应公开 seam 和 Consumer 都已挂载时，模型才能看到这些工具；Fleet 不会广告不可用的能力。
+`dsh-cross-session` 让一个 live Session 在不创建第二套 harness 的前提下与另一个 Session 协作：
 
-完整约束见 [docs/architecture.md](docs/architecture.md)。
+- **在上下文所在的位置继续工作。** 把后续任务发给已经负责该工作的 Session。
+- **协调并行任务。** 查看另一个 Session 的状态、补充方向，并观察它产生的 turn。
+- **保持职责分离。** 用不同 Session 承担实现、评审、研究或长时间任务，同时让它们留在同一个 DSH runtime 中。
 
-## 当前能力
+## 它能做什么
 
-`ctx.fleet` 提供：
+| 动作 | 含义 | 工具 |
+|---|---|---|
+| 发现 | 列出当前 `dsh` 进程中的 live Session | `fleet_list` |
+| 查看 | 读取另一个 live Session 的有限摘要 | `fleet_inspect` |
+| 发送 | 把后续工作排入目标的下一 turn | `fleet_send` |
+| 转向 | 在目标的下一 step boundary 修改工作方向 | `fleet_steer` |
+| 等待 | 观察认领已发送消息的完整 turn | `fleet_wait` |
+| 取消 | 显式启用后停止 root Session 的活动工作 | `fleet_cancel` |
 
-- `list()` — 列出当前 DSH 进程的 live Agent；
-- `inspect()` — 返回有限且 JSON-safe 的对话摘要；
-- `send()` — 给 live root Agent 排入 plugin-source follow-up；它会唤醒目标的工作循环，并可能消耗模型和工具资源；
-- `steer()` — 转向 live root Agent；它会改变正在进行的工作，并可能消耗模型和工具资源；
-- `cancel()` — 使用稳定 Fleet 原因取消 live root Agent；它会中断正在进行的工作，但不会回滚已经被模型或工具接受的工作；
-- `subscribe()` — 观察投影后的 created/status/disposed 事件。
+**Send 与 steer：** 工作应等待目标的下一 turn 时使用 `fleet_send`；需要在当前 turn 的下一 step boundary 改变方向时使用 `fleet_steer`。目标 idle 时，steer 也会唤醒它并以该输入开始一个 turn。
 
-confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-relay` source。exact caller Agent 提供 `senderSessionId`，Provider 提供 opaque `deliveryId`。模型可见 header 同时编码两者；固定 marker 之后的正文从独立 text block 开始，按原文保留为不可信模型输入，不能覆盖结构化归因。
+## 快速开始
 
-独立入口 `@wha1echai/dsh-cross-session/tool` 注册：
-
-- 所有模式都有 `fleet_list` 和 `fleet_inspect`；
-- `message` 和 `full` 模式增加 `fleet_send` 与 `fleet_steer`；
-- 只有 `full` 模式增加 `fleet_cancel`。
-
-挂载该 Consumer 后，已运行的 Session 会通过正常 ToolRuntime 组合，在下一次模型请求中看到当前配置的工具。它不会注入合成聊天消息，也不依赖永久 system prompt prose 来宣布 Fleet。
-
-可信程序化 Consumer 的 direct Service API 继续以 `sessionId` 作为当前 runtime 内的稳定路由标识。Selected steer receipt 包含 opaque `deliveryId`；selected send 还返回 caller-bound、single-observer 的 `replyReceipt`。Delivery 仍只表示 inbox 接受。`waitForReply()` 之后观察 claim exact message 的完整 turn，不用 Agent idle 作为证明，也不声称严格的 message-to-message 因果。模型工具改用 confirmed-target protocol：`fleet_list` 返回 caller-bound `targetRef`，`fleet_inspect` 接受该 reference，并可能签发 exact-Agent-bound、single-attempt 的 `selectionHandle`；写工具只接受 selection。无效、过期、caller mismatch、Agent replacement、Provider unload 或已使用的 handle 都 fail closed，绝不授权替换为其他 Session。每个 Agent view 仍包含 `sessionId`；未来任何 Session-list UI 都必须显示它并提供复制操作。
-
-`controlMode` 默认是 `read-only`。五个 confirmed-target 工具都把 owning Agent 的 exact object 传给 Provider，并从它派生 Session id 做交叉校验；模型字段不能提供 caller identity，没有 owning Agent 时直接失败。写授权继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
-
-可选入口 `@wha1echai/dsh-cross-session/reply-job` 只在 `ctx.jobs` 已挂载时注册 `fleet_wait`。它创建 owner-scoped `fleet-reply` 后台 job；output/list/kill、controller 和 completion notice 继续由官方 job tools 负责。Kill job 只 abort reply observation，不 cancel target。应把该 Consumer 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；它的 scoped ToolRuntime 注册会跟随该 composition。
-
-挂载可选的 `sessionTitle` 服务后，Fleet 只从 exact live Session 读取日志中已经记录的标题，并把它作为 list/inspect 的展示字段。标题服务缺失或卸载时 Fleet 仍可用，只省略 `title`；标题不影响 identity、routing、selection、顺序、过滤或授权。Inspect 另外报告 tail limit 省略的消息数和每条消息的 `textTruncated` 事实。
-
-API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fleet.md)。
-
-## 当前范围
-
-进程内 Provider 只能看到同一运行中 DSH runtime，也就是同一个 `dsh` 进程里的 live Session。当前版本不提供：
-
-- 跨进程或多 runtime 的发现和控制；
-- 跨终端或跨设备路由；
-- 本地到服务器控制；
-- remote Web、gateway 或 daemon 支持；
-- 多 Session Web 或桌面 UI。
-
-下面使用的 `web` profile 只是现有 DSH 安装和开发宿主，不表示本插件提供 remote Web 支持或 supervisor UI。Web 可以保留为未来的一等产品面，Electron 可以作为可选 wrapper，但两者都次于当前同 runtime 通信目标。
-
-## 运行要求
-
-- Node.js `^22.19.0` 或 `>=24.0.0`
-- 仓库开发使用 pnpm `11.7.0`
-- `@deepseek-ai/dsh@0.1.0-rc.6`
-
-第一条发布线不承诺跨 DSH release candidate 兼容。
-
-## 安装
-
-请通过完整版本或 `next` dist-tag 安装首个 prerelease。npm 要求每个包保留 `latest`；由于当前只有这一个已发布版本，`latest` 暂时也会解析为 `0.1.0-rc.1`。建议显式使用完整版本或 `next`，让安装意图保持清晰。
+### 1. 安装 prerelease
 
 ```sh
 dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
 dsh --profile web --dump-config
 ```
 
-评估包时建议使用隔离的 `DSH_HOME`，避免修改已有 profile。下面仍提供本地 checkout 和固定 commit 的 GitHub 安装方式。
+如果只是评估插件，建议使用隔离的 `DSH_HOME`，避免修改已有 profile。
+
+npm 要求每个包保留 `latest`。由于当前只有这一个已发布版本，`latest` 和 `next` 都会解析为 `0.1.0-rc.1`；建议使用完整版本或 `next`，让 prerelease 安装意图保持清晰。
+
+### 2. 启用消息
+
+Bundle 默认只启用只读发现。在 profile 的 `cordis.patch.yml` 中加入以下配置，以启用 `fleet_send` 和 `fleet_steer`：
+
+```yaml
+- id: dsh-cross-session-tools
+  name: '@wha1echai/dsh-cross-session/tool'
+  config:
+    controlMode: message
+```
+
+工具可见性模式：
+
+| `controlMode` | 可用工具 |
+|---|---|
+| `read-only` | `fleet_list`、`fleet_inspect` |
+| `message` | 只读工具，加上 `fleet_send`、`fleet_steer` |
+| `full` | 消息工具，再加上 `fleet_cancel` |
+
+只有明确允许模型执行取消的 composition 才使用 `full`。可选的回复等待需与官方 Jobs 工具共同配置，详见[等待回复](#等待回复)。
+
+### 3. 启动 DSH
+
+```sh
+dsh --profile web
+```
+
+在该 runtime 中打开两个 live root Session。插件使用 Web profile 所在的同一个进程；如果 DSH 监听 3080，插件不会再打开另一个端口。
+
+## 试一试
+
+在目标 Session 中输入：
+
+```text
+收到 Fleet 消息后，先简要概括请求，再正常完成任务，
+最后返回一段简短结果。
+```
+
+在调用 Session 中输入：
+
+```text
+找到另一个 live root Session，查看并确认它，然后发送一个小任务。
+如果 fleet_wait 可用，再等待接收该消息的 turn 完成。
+```
+
+预期流程：
+
+```text
+调用方发现目标
+  → 调用方查看并确认目标
+  → 目标收到后续工作
+  → 目标完成下一 turn
+  → 调用方可选地通过 fleet_wait 观察认领消息的 turn
+```
+
+## 操作安全
+
+- `fleet_send` 和 `fleet_steer` 可能触发模型请求和工具调用，因此可能消耗模型与工具资源。
+- `fleet_cancel` 会中断活动工作，但无法回滚模型或工具已经接受的工作。
+- 只在确实需要这些能力的 Agent composition 中启用写模式。
+- `controlMode` 只控制模型可见工具，不替代 DSH approval、`tools/pre-execute` 或 `ctx.tools.guard()` 策略。
+
+完整的副作用和 late-abort 语义见 [Fleet 参考](docs/reference/fleet.md)。
+
+## 目标确认机制
+
+模型工具不会直接向任意 Session ID 写入，而是经过一个简短的确认流程：
+
+```text
+fleet_list
+  → 选择 live 目标
+
+fleet_inspect
+  → 确认 exact 目标
+
+fleet_send / fleet_steer / fleet_cancel
+  → 对已确认 selection 执行动作
+```
+
+Target reference 和 selection 都是短期、caller-bound、fail-closed 的能力。如果目标消失、被替换、过期或 Provider 卸载，selection 不会静默切换到另一个 Session。写 selection 固定为 single-attempt。
+
+可信程序化 Consumer 仍可通过 direct `ctx.fleet` Service API 使用 `sessionId`。Confirmed-target 流程是模型可见的安全路径。
+
+## 等待回复
+
+`fleet_send` 返回 caller-bound reply receipt。可选 reply-job Consumer 会增加 `fleet_wait`；该工具创建 owner-scoped DSH Job，并观察认领 exact sent message 的完整 turn。
+
+请把该 Consumer 与官方 Jobs tool Consumer 挂在同一个 composition scope。对于使用 Agent preset 的 Web profile，请先复制一个随 DSH 提供的 preset，在用户自有 preset 中把以下 row 放到 `@deepseek-ai/dsh-tool-jobs` row 旁边，再让调用 Session 选择该 preset：
+
+```yaml
+- id: dsh-cross-session-reply-job
+  name: '@wha1echai/dsh-cross-session/reply-job'
+```
+
+用户自有 preset 通常位于 `$DSH_HOME/.agent-presets/<id>/agent.cordis.yml`。不要编辑 DSH 安装目录中随附的 preset；当官方 Jobs 工具按 preset 挂载时，也不要把 reply-job 全局挂载。工具可见性由各 Consumer 执行注册时所在的 Cordis context 决定。
+
+结果属于认领消息的 turn，但不声称该 turn 中的每个 assistant token 都只由这一条消息因果产生。
+
+Timeout、abort 或 job cancellation 只停止观察，不会 cancel、steer 或替换目标 Session。Job output、list、kill 和 completion notice 继续由官方 Jobs 能力负责。
+
+## 当前范围
+
+### 当前支持
+
+- 同一个运行中 `dsh` 进程里的 live Session；
+- root Session 发现和有限摘要；
+- confirmed send、steer 和可选 cancel；
+- exact claimed-turn reply observation；
+- DSH 已经记录的可选展示标题；
+- 正常的 DSH Web、CLI 或其他 host composition。
+
+### 当前不提供
+
+- 第二套 harness、Agent runtime 或 daemon；
+- 独立网络端口；
+- 跨进程、跨设备或多 runtime 通信；
+- remote-control gateway；
+- 专用的多 Session Web 或桌面 UI；
+- delegated Session 写入，该能力仍应通过未来的官方 subagent seam 接入。
+
+## 它如何接入 DSH
+
+```text
+模型工具 ─────────┐
+未来 UI ──────────┼──> FleetService（ctx.fleet）<── InProcessFleetProvider
+其他插件 ─────────┘                                  │
+                                                      └── live Agent registry
+```
+
+Consumer 依赖 `ctx.fleet`，不会直接调用 Agent 方法。当前 Provider 只操作同一进程中的 live Agent。Delegated Session 控制继续属于 `ctx.subagents`，编排继续属于 `ctx.workflowEngine`，后台生命周期继续属于 `ctx.jobs`。
+
+生命周期规则、配置 limits、API、错误码和扩展点见[架构文档](docs/architecture.md)与 [Fleet 参考](docs/reference/fleet.md)。
+
+## 兼容性
+
+| 组件 | 支持版本 |
+|---|---|
+| `dsh-cross-session` | `0.1.0-rc.1` |
+| DeepSeek Harness | `0.1.0-rc.6` |
+| Node.js | `^22.19.0` 或 `>=24.0.0` |
+| 仓库包管理器 | pnpm `11.7.0` |
+
+Release candidate 使用精确版本是有意设计。后续 DSH 版本在完成验证前不视为兼容。
+
+## 其他安装方式
 
 ### 本地 checkout
 
@@ -101,63 +207,22 @@ pnpm install
 pnpm run build
 
 dsh plugin --profile web add /absolute/path/to/dsh-cross-session
-dsh --profile web --dump-config
-dsh --profile web
 ```
 
-PowerShell 开发时使用隔离的 DSH home，不要修改已有用户 profile：
-
-```powershell
-$env:DSH_HOME = "D:\coding\programs\dsh\.dsh-cross-session-home"
-dsh plugin --profile web add D:\coding\programs\dsh\dsh-cross-session
-dsh --profile web --dump-config
-dsh --profile web
-```
-
-### GitHub 源安装
-
-固定已审查的 commit：
+### 固定 commit 的 GitHub 源
 
 ```sh
 dsh plugin --profile web add github:Wha1eChai/dsh-cross-session#<commit>
 ```
 
-Git 安装会执行包内的 `prepare` 来构建 TypeScript。pnpm 10 及以上默认拒绝该脚本，用户需要在 profile 的 `pnpm-workspace.yaml` 中显式允许：
+Git 安装会执行 `prepare` 构建 TypeScript。pnpm 10 及以上要求在 profile 的 `pnpm-workspace.yaml` 中显式允许：
 
 ```yaml
 allowBuilds:
   '@wha1echai/dsh-cross-session': true
 ```
 
-授予安装时执行权限前应先审查源码并固定 commit。添加授权后重新运行 `dsh plugin add`。
-
-## 使用
-
-Bundle 会安装 host-plane Fleet Provider，以及采用安全 `read-only` 默认值的核心工具 Consumer，暴露 `fleet_list` 和 `fleet_inspect`。Bundle 不安装可选 reply-job Consumer。需要 `fleet_wait` 时，把 `@wha1echai/dsh-cross-session/reply-job` 与官方 Jobs Consumer 挂在同一个 host 或 agent preset composition 中；scoped ToolRuntime 注册会把该可选工具限制在指定 composition 内。
-
-如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-cross-session-tools` 行：
-
-```yaml
-- id: dsh-cross-session-tools
-  name: '@wha1echai/dsh-cross-session/tool'
-  config:
-    controlMode: message # read-only | message | full
-```
-
-`fleet_wait` 只能消费已启用 `fleet_send` 返回的 reply receipt；实际启动 job 还要求 owner 的 composition 挂载官方 Jobs controller Consumer。只有在明确允许模型取消其他 root Session 的 composition 中才使用 `full`。`controlMode` 只选择工具可见性，不替代 `tools/pre-execute`、approval 或 `ctx.tools.guard()` 策略。
-
-其他插件也可以把 `fleet` 声明为必需服务，直接消费 Fleet：
-
-```ts
-export const inject = ['fleet']
-
-export function apply(ctx: Context) {
-  const live = ctx.fleet.list()
-  // 使用同 runtime 的 JSON-safe 视图构建未来命令或 UI adapter。
-}
-```
-
-这些 Consumer 是独立插件，不包含在当前包中。任何未来 transport 或 remote Consumer 还需要单独的身份、传输和权限设计；当前 `sessionId` 不得被视为全局远程地址。
+授予安装时执行权限前，应先审查并固定源码 commit。如果首次 add 因构建脚本未授权而失败，请把 pnpm 输出的精确包名加入该 profile 的 `pnpm-workspace.yaml`，然后重新运行同一条 `dsh plugin --profile web add` 命令。
 
 ## 开发
 
@@ -166,49 +231,26 @@ pnpm install
 pnpm run typecheck
 pnpm test
 pnpm run build
-pnpm pack
-```
-
-测试使用真实 `ToolRuntime`，验证 canonical value 和模型可见内容，并通过官方 Loader + Include 从 test-only `cordis.yml` 加载构建后的 Provider、tool 和 reply-job entry。测试还明确防止所有 namespace entry 出现 `default` export，并验证 Provider/Consumer 卸载。packed artifact 门禁会检查 tarball 内容、声明入口、Loader namespace unwrap 和 package self-reference metadata：
-
-```sh
 pnpm pack --pack-destination .pack-output/dev
 pnpm run check:packed -- .pack-output/dev
 ```
 
-## 路线 / TODO
+测试使用真实 DSH `ToolRuntime` 和 Loader composition，覆盖目标确认、生命周期失效、relay 归因、reply observation、scoped tool visibility、卸载，以及 packed JavaScript/declaration entries。
 
-- [x] **L0** — 可安装 Bundle、构建、包元数据、真实 Loader smoke。
-- [x] **L1** — `FleetService`、进程内 Provider、生命周期隔离、keyless 测试。
-- [x] **L2** — `fleet_list`、`fleet_inspect`、`fleet_send`、`fleet_steer`、`fleet_cancel` 工具 Consumer。
-- [x] **L2.1** — 通过 exact Agent 是否属于 `ctx.agents.roots()` 权威分类 runtime root/delegated，并与 durable lineage 元数据解耦。
-- [x] **L2.2** — caller-bound target reference 和 exact-Agent-bound single-attempt selection，保证模型写入 fail closed。
-- [x] **L2.3** — 可选日志标题发现，以及 inspect omission/text-truncation 事实保真。
-- [x] **L2.4** — versioned attributed confirmed-target relay、exact caller 归因和 delivery correlation。
-- [x] **L2.5** — exact claimed-turn reply observation，以及不 busy-poll、不取消 target 的可选 `ctx.jobs`-backed `fleet_wait`。
-- [ ] **L2b** — 通过公开 subagent seam、携带精确 parent authority 的 delegated Session 写 API。
-- [ ] **L3** — 条件组合现有 Fleet、subagent 和 workflow Consumer 的 supervisor Agent preset。
-- [ ] **L4+** — 未来独立 profile、一等产品面和 transport；这些都不是当前支持。
-- [ ] **L5 可选项** — 在未来受支持产品面之上的可选 Electron wrapper。
-- [ ] **L6+** — 未来 daemon 和多 runtime Fleet Provider。
-- **Registry prerelease** — 完成隔离 source/tarball 验证和用户可见验收后，以 `next` dist-tag 发布 `0.1.0-rc.1`。
-- [ ] 为每个支持的 DSH release candidate 添加兼容性 CI。
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)、[SECURITY.md](SECURITY.md) 和[发布与回滚](docs/release.md)。
 
-详细阶段边界见 [docs/plan/layers.md](docs/plan/layers.md)。
+## 路线图
 
-## 文档
+- 通过官方 subagent capability 支持 delegated Session 消息；
+- 提供更清晰、组合现有 DSH 能力的 supervisor-oriented preset；
+- 提供一等的多 Session Web 体验；
+- 为经过明确设计的多 runtime 通信增加其他 Provider；
+- 验证后续 DSH release candidate 的兼容性。
 
-从 [docs/README.md](docs/README.md) 开始：
+详细的已交付里程碑、未来分层和 non-goals 维护在 [docs/plan/](docs/plan/README.md)。
 
-- [产品边界](docs/product.md)
-- [架构](docs/architecture.md)
-- [已锁定决定](docs/plan/decisions.md)
-- [Fleet API 参考](docs/reference/fleet.md)
+## 项目状态
 
-## 参与贡献
+`dsh-cross-session` 是独立社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
-欢迎通过本仓库提交 bug、设计反馈和范围清晰的 Pull Request。贡献必须保留 capability seam：Consumer 依赖 `ctx.fleet`，delegated 写入通过未来的 Fleet API 接入 `ctx.subagents`，编排留在 `ctx.workflowEngine`，模型可见能力由 profile 中实际挂载的 seam 和 Consumer 决定。详见 [CONTRIBUTING.md](CONTRIBUTING.md)、[SECURITY.md](SECURITY.md) 和[发布与回滚](docs/release.md)。
-
-## 协议
-
-[MIT](LICENSE)
+使用 [MIT License](LICENSE)。
