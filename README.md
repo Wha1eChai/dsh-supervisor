@@ -12,7 +12,7 @@ Let live [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Ses
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
 
-![A calling Session lists, inspects, and messages a README review Session, then observes the claimed turn through Fleet.](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/main/docs/assets/cross-session-readme-review.png)
+![A calling Session lists, inspects, and messages a README review Session, then observes the claimed turn through Fleet.](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/63602642e948d20e3fd7a52ee4f8f8bb64261a28/docs/assets/cross-session-readme-review.png)
 
 *Composite of two real DSH Session views for readability. The plugin provides the Fleet communication tools, not a split-screen or multi-Session UI.*
 

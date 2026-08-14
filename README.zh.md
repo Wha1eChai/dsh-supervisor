@@ -12,7 +12,7 @@
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
-![调用 Session 通过 Fleet 列出、查看并向 README 评审 Session 发送消息，随后观察认领消息的 turn。](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/main/docs/assets/cross-session-readme-review.png)
+![调用 Session 通过 Fleet 列出、查看并向 README 评审 Session 发送消息，随后观察认领消息的 turn。](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/63602642e948d20e3fd7a52ee4f8f8bb64261a28/docs/assets/cross-session-readme-review.png)
 
 *为便于阅读而合成的两个真实 DSH Session 视图。插件提供 Fleet 通信工具，不提供分屏或多 Session UI。*
 
