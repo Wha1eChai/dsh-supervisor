@@ -1,6 +1,6 @@
 # 发布与回滚
 
-本页是维护者使用的 prerelease、tarball 验证和回滚参考。当前包的首次 npm prerelease 版本为 `0.1.0-rc.1`；它应使用 `next` dist-tag，不进入 `latest`。版本依据是仓库没有既有 npm release 或 tag，产品仍处于 tool preview，且运行时兼容性固定为 DSH `0.1.0-rc.6`。
+本页是维护者使用的 prerelease、tarball 验证和回滚参考。当前包的首次 npm prerelease 版本为 `0.1.0-rc.1`，并使用 `next` dist-tag。npm registry 要求包保留 `latest`；首次且唯一版本发布后，`latest` 也会指向该 prerelease，直到后续稳定版接管。版本依据是仓库没有既有 npm release 或 tag，产品仍处于 tool preview，且运行时兼容性固定为 DSH `0.1.0-rc.6`。
 
 ## Prerelease checklist
 
@@ -147,7 +147,7 @@ The registry flow requires `0.1.0-rc.1` to be available from the configured npm 
 
 ## Prerelease installation
 
-Prerelease 安装必须指定完整版本或 `next` tag，不能用裸包名依赖 npm 的默认 `latest` 选择。发布后在隔离 home 中验证：
+Prerelease 安装应指定完整版本或 `next` tag，避免依赖 npm 的默认 `latest` 选择。当前只有 `0.1.0-rc.1` 一个 registry 版本，因此 registry 要求的 `latest` 暂时与 `next` 指向相同版本；稳定版发布后将 `latest` 移到稳定版。发布后在隔离 home 中验证：
 
 POSIX shell：
 

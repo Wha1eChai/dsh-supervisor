@@ -83,7 +83,7 @@ The first release line intentionally makes no compatibility promise across DSH r
 
 ## Install
 
-Install the first prerelease by exact version or through the `next` dist-tag. A bare package install selects npm's `latest` tag and is not a prerelease install.
+Install the first prerelease by exact version or through the `next` dist-tag. npm requires every package to retain `latest`; because this is the package's only published version, `latest` currently also resolves to `0.1.0-rc.1`. Prefer the explicit version or `next` so installation intent remains clear.
 
 ```sh
 dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
