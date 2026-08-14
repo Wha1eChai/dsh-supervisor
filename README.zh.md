@@ -12,6 +12,10 @@
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
+![调用 Session 通过 Fleet 列出、查看并向 README 评审 Session 发送消息，随后观察认领消息的 turn。](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/main/docs/assets/cross-session-readme-review.png)
+
+*为便于阅读而合成的两个真实 DSH Session 视图。插件提供 Fleet 通信工具，不提供分屏或多 Session UI。*
+
 ## 为什么需要跨 Session 通信？
 
 一个 Session 往往已经拥有你需要的上下文：正在进行的实现、带有关键证据的调查，或应与主对话保持分离的评审。把这些历史复制到新聊天里可能丢失上下文，也会增加协调成本。

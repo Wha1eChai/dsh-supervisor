@@ -12,6 +12,10 @@ Let live [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Ses
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
 
+![A calling Session lists, inspects, and messages a README review Session, then observes the claimed turn through Fleet.](https://raw.githubusercontent.com/Wha1eChai/dsh-cross-session/main/docs/assets/cross-session-readme-review.png)
+
+*Composite of two real DSH Session views for readability. The plugin provides the Fleet communication tools, not a split-screen or multi-Session UI.*
+
 ## Why cross-Session communication?
 
 A Session often already has the context you need: an implementation in progress, an investigation with useful evidence, or a review that should stay separate from the main conversation. Copying that history into another chat can lose context and creates more coordination work.
