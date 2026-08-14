@@ -3,3 +3,5 @@
       name: '@wha1echai/dsh-supervisor'
     - id: dsh-supervisor-tools
       name: '@wha1echai/dsh-supervisor/tool'
+    - id: dsh-supervisor-reply-job
+      name: '@wha1echai/dsh-supervisor/reply-job'

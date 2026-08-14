@@ -16,6 +16,10 @@
     targetRefTtlMs: 300000
     selectionTtlMs: 60000
     maxSelectionsPerCaller: 32
+    replyReceiptTtlMs: 600000
+    maxReplyRecordsPerCaller: 32
+    maxReplyMessages: 8
+    maxReplyTextChars: 8000
 ```
 
 | 字段 | 默认值 | 约束 | 含义 |
@@ -26,8 +30,12 @@
 | `targetRefTtlMs` | 300000 | 正安全整数 | caller-bound target reference 有效期 |
 | `selectionTtlMs` | 60000 | 正安全整数 | single-attempt write selection 有效期 |
 | `maxSelectionsPerCaller` | 32 | 正安全整数 | 每个 exact caller 保留的最大 live selection 数 |
+| `replyReceiptTtlMs` | 600000 | 正安全整数 | 开始观察 reply 以及保留未消费 terminal result 的有效期 |
+| `maxReplyRecordsPerCaller` | 32 | 正安全整数 | 每个 exact caller 的最大未消费/active reply record 数 |
+| `maxReplyMessages` | 8 | 正安全整数 | turn result 保留的尾部 text-bearing assistant message 数 |
+| `maxReplyTextChars` | 8000 | 正安全整数 | 每条 reply assistant text 的字符上限 |
 
-Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最旧记录。
+Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最旧记录；reply record 达到上限时，新 selected send 在 target 副作用前返回 `fleet-reply-capacity`。
 
 ## 工具配置与发现
 
@@ -39,7 +47,7 @@ Expiry 采用 lazy prune，不运行后台 timer。Selection 超限时淘汰最�
 | `message` | 只读工具 + `fleet_send`、`fleet_steer` |
 | `full` | 全部工具，包括 `fleet_cancel` |
 
-已运行 Session 在下一次模型请求中通过正常 ToolRuntime composition 看到当前工具。该入口只注册 `fleet_*`，不注册或宣传 subagent/workflow 工具。
+已运行 Session 在下一次模型请求中通过正常 ToolRuntime composition 看到当前工具。核心 `./tool` 入口只注册上述五个工具，不注册或宣传 subagent/workflow 工具。可选 `./reply-job` 入口在 `ctx.jobs` 可用时另注册 `fleet_wait`；实际启动 job 还要求宿主组合官方 Jobs controller Consumer。
 
 五个工具都要求 owning Agent，并且只从 `exec.agent.session.id` 派生 caller identity。模型不能提交 caller id。List/inspect 为 parallel；send/steer/cancel 为 exclusive。
 
@@ -59,7 +67,7 @@ fleet_send / fleet_steer / fleet_cancel(selection_handle)
 |---|---|---|
 | `fleet_list` | `roots_only?`, `running_only?` | `{ agents: FleetTargetView[], count }` |
 | `fleet_inspect` | `target_ref`, `tail_messages?` | `{ agent: FleetInspectView, selection? }` |
-| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
+| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId, replyReceipt, replyReceiptExpiresAt }` |
 | `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
 | `fleet_cancel` | `selection_handle`, `keep_inbox?` | `{ sessionId, accepted: true }` |
 
@@ -107,6 +115,7 @@ ctx.fleet.subscribe(listener)
 ctx.fleet.listTargets(options)
 ctx.fleet.inspectTarget(targetRef, options)
 ctx.fleet.sendSelected(selectionHandle, text, options)
+ctx.fleet.waitForReply(replyReceipt, options)
 ctx.fleet.steerSelected(selectionHandle, text, options)
 ctx.fleet.cancelSelected(selectionHandle, options)
 ```
@@ -145,6 +154,26 @@ Direct/selected `cancel` 的原因固定为：
 ```ts
 { kind: 'hook', reason: 'fleet-cancel' }
 ```
+
+## Reply observation 与 Jobs Consumer
+
+Selected `send` 返回的 `replyReceipt` 是 caller-bound、exact-target-bound、Provider-bound、single-observer capability。Provider 在 `followup()` 前创建 record，并按公开事件建立：
+
+```text
+exact message id -> agent/inbox/claimed turn -> same-turn assistant/message -> turn/end
+```
+
+`waitForReply()` 返回 claimed turn 的结果，不声称 assistant output 只由该 relay 因果产生，也不等待 whole-Agent idle。它只覆盖 send/followup，不覆盖 steer。Turn result 报告 `admitted`、完整 `turnEndReason`、bounded `assistantMessages` 和 `omittedAssistantMessages`；另有 claim 前 `discarded` 与 terminal result 前 `target-unavailable`。
+
+Abort 只停止 observation，不 cancel 或 steer target。结果可在 wait 注册前完成并短期保留一次；第二次观察、caller mismatch、expiry 或 stale receipt 返回 `fleet-reply-invalid`。
+
+可选 `@wha1echai/dsh-supervisor/reply-job` 在 `ctx.jobs` 挂载时注册：
+
+```text
+fleet_wait(reply_receipt) -> { jobId }
+```
+
+它只生产 owner-scoped `fleet-reply` job，并通过独立入口配置 `maxOutputBytes`（默认 300000）限制官方 job output/notice 的完整 UTF-8 大小。官方 `dsh-tool-jobs` 继续提供 `job_output` / `job_list` / `job_kill`、controller 和 completion notice；Fleet 不复制这些能力。Job kill 只 abort observation，不取消 target。
 
 ## Agent 视图与 runtime ownership
 
@@ -203,8 +232,10 @@ Runtime delegated Agent 保持只读：有 `ctx.subagents` 时 direct write 返�
 | `fleet-caller-unavailable` | confirmed-target caller 已不是 exact live Agent |
 | `fleet-target-reference-invalid` | target reference unknown、expired、mismatched 或 stale |
 | `fleet-selection-invalid` | selection unknown、expired、mismatched、stale 或已消费 |
+| `fleet-reply-invalid` | reply receipt unknown、expired、foreign、stale、active 或已消费 |
+| `fleet-reply-capacity` | caller 的 unconsumed/active reply record 已达配置上限 |
 
-Selected write receipt 的 `messageId` 是消息 correlation，`deliveryId` 是 Provider 生成的 relay observability identity。Receipt 只代表 Agent inbox 方法同步接受，不表示目标已 claim、完成 turn 或产生 reply；selected steer 不拥有独立 reply 语义。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
+Selected write receipt 的 `messageId` 是消息 correlation，`deliveryId` 是 Provider 生成的 relay observability identity。Send 的 `replyReceipt` 允许之后观察 exact claimed turn；delivery receipt 本身仍只代表 Agent inbox 方法同步接受，不表示目标已 claim、完成 turn 或产生 reply。Selected steer 不返回 reply receipt，也不拥有独立 reply 语义。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
 
 无效 reference/selection 的错误明确说明：
 

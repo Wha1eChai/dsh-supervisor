@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 A community plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) focused on cross-Session discovery, addressing, and communication among live Sessions in the same running DSH runtime (one `dsh` process). It exposes a replaceable `ctx.fleet` service plus model-callable `fleet_*` tools over that service.
 
-> **Status: tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, and attributed confirmed-target relays. The Fleet service, authoritative runtime-ownership classification, and five tool Consumer definitions are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
+> **Status: tool preview (L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5).** Fleet now includes optional log-backed title projection, lossless inspect truncation facts, attributed confirmed-target relays, and exact claimed-turn reply observation. The Fleet service, authoritative runtime-ownership classification, five core tool definitions, and optional Jobs Consumer are implemented and keylessly tested through the built package entries. The current product surface is an API and model tools, not a multi-Session UI or remote control service.
 
 This is an independent community project and is not affiliated with or endorsed by DeepSeek AI.
 
@@ -51,9 +51,11 @@ The separate `@wha1echai/dsh-supervisor/tool` entry registers:
 
 Mounting this Consumer makes its currently configured tools available to already-live Sessions through normal ToolRuntime composition on their next model request. It does not inject a synthetic chat message or rely on permanent system-prompt prose to announce Fleet.
 
-The direct Service API keeps `sessionId` as the stable routing identifier for trusted programmatic Consumers. Selected write receipts include an opaque `deliveryId`; they confirm inbox acceptance only, not completion or reply. Model tools use a confirmed-target protocol instead: `fleet_list` returns a caller-bound `targetRef`, `fleet_inspect` accepts that reference and may issue an exact-Agent-bound single-attempt `selectionHandle`, and write tools accept only the selection. Invalid, expired, mismatched, replaced, unloaded, or already-used handles fail closed and never authorize substituting another Session. Every Agent view still includes `sessionId`; any future Session-list UI must display it and provide a copy action.
+The direct Service API keeps `sessionId` as the stable routing identifier for trusted programmatic Consumers. Selected steer receipts include an opaque `deliveryId`; selected send also returns a caller-bound single-observer `replyReceipt`. Delivery still means inbox acceptance only. `waitForReply()` later observes the complete turn that claims that exact message without using Agent idle as proof or claiming strict message-to-message causality. Model tools use a confirmed-target protocol instead: `fleet_list` returns a caller-bound `targetRef`, `fleet_inspect` accepts that reference and may issue an exact-Agent-bound single-attempt `selectionHandle`, and write tools accept only the selection. Invalid, expired, mismatched, replaced, unloaded, or already-used handles fail closed and never authorize substituting another Session. Every Agent view still includes `sessionId`; any future Session-list UI must display it and provide a copy action.
 
 The default `controlMode` is `read-only`. All five confirmed-target tools pass the exact owning Agent object and derive its Session id for Provider cross-checking; model fields cannot supply caller identity, and agentless execution is rejected. Write authorization remains in `ctx.fleet`. Fleet classifies runtime roots by exact Agent membership in `ctx.agents.roots()`; durable `origin` and `parentSession` metadata do not affect `kind` or write authority. Delegated Agents remain read-only in L2.1; the Consumer never bypasses Fleet to call subagent APIs directly.
+
+The optional `@wha1echai/dsh-supervisor/reply-job` entry registers `fleet_wait` only when `ctx.jobs` is mounted. It starts an owner-scoped `fleet-reply` background job; official job tools remain responsible for output, list, kill, controller, and completion notices. Killing the job aborts only reply observation and does not cancel the target.
 
 When the optional `sessionTitle` service is mounted, Fleet reads only an already logged title from the exact live Session and exposes it as a display field in list/inspect projections. Missing or unloaded title service leaves Fleet available without `title`; title never affects identity, routing, selection, ordering, filtering, or authorization. Inspect separately reports messages omitted by the tail limit and per-message `textTruncated` facts.
 
@@ -124,7 +126,7 @@ Review the source and pin a commit before granting install-time execution permis
 
 ## Usage
 
-The Bundle installs both package entries. Its safe default exposes only `fleet_list` and `fleet_inspect`. To enable message or cancellation tools, override the complete `dsh-supervisor-tools` row in the profile's `cordis.patch.yml`:
+The Bundle installs the Provider, core tool Consumer, and optional reply-job Consumer entries. Its safe default exposes `fleet_list` and `fleet_inspect`; `fleet_wait` also appears when the host profile mounts the public Jobs seam and an official Jobs controller Consumer. It can consume only a reply receipt returned by enabled `fleet_send`. To enable message or cancellation tools, override the complete `dsh-supervisor-tools` row in the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: dsh-supervisor-tools
@@ -158,7 +160,7 @@ pnpm run build
 pnpm pack
 ```
 
-The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using both built package entries. They also guard both namespace entries against a `default` export and verify Provider/Consumer unload behavior.
+The tests use the real `ToolRuntime`, validate canonical values and model-facing content, and boot a test-only `cordis.yml` through the official Loader + Include path using the built Provider, tool, and reply-job entries. They also guard all namespace entries against a `default` export and verify Provider/Consumer unload behavior.
 
 ## Roadmap / TODO
 
@@ -169,6 +171,7 @@ The tests use the real `ToolRuntime`, validate canonical values and model-facing
 - [x] **L2.2** — caller-bound target references and exact-Agent-bound single-attempt selections for fail-closed model writes.
 - [x] **L2.3** — optional log-backed title discovery and inspect omission/text-truncation fidelity.
 - [x] **L2.4** — versioned attributed confirmed-target relay with exact caller attribution and delivery correlation.
+- [x] **L2.5** — exact claimed-turn reply observation plus optional `ctx.jobs`-backed `fleet_wait` without busy-polling or target cancellation.
 - [ ] **L2b** — delegated-Session write API with exact parent authority through the public subagent seam.
 - [ ] **L3** — supervisor Agent preset that conditionally composes the existing Fleet, subagent, and workflow Consumers.
 - [ ] **L4+** — future dedicated profiles, first-class surfaces, and transports; none are current support.

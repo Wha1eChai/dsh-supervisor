@@ -7,7 +7,11 @@ export { InProcessFleetProvider } from './providers/in-process.js'
 export type { InProcessFleetConfig } from './providers/in-process.js'
 export { FleetService } from './service.js'
 export * from './types.js'
-export type { FleetDeliveryId, FleetRelayMessageSource } from './relay.js'
+export type {
+  FleetDeliveryId,
+  FleetRelayMessageSource,
+  FleetReplyReceipt,
+} from './relay.js'
 
 /** Deployment tunables for the in-process Fleet provider. */
 export interface Config {
@@ -17,6 +21,10 @@ export interface Config {
   targetRefTtlMs: number
   selectionTtlMs: number
   maxSelectionsPerCaller: number
+  replyReceiptTtlMs: number
+  maxReplyRecordsPerCaller: number
+  maxReplyMessages: number
+  maxReplyTextChars: number
 }
 
 const positiveInteger = (defaultValue: number) => Schema.number()
@@ -33,6 +41,10 @@ export const Config: Schema<Config> = Schema.object({
   targetRefTtlMs: positiveInteger(300_000),
   selectionTtlMs: positiveInteger(60_000),
   maxSelectionsPerCaller: positiveInteger(32),
+  replyReceiptTtlMs: positiveInteger(600_000),
+  maxReplyRecordsPerCaller: positiveInteger(32),
+  maxReplyMessages: positiveInteger(8),
+  maxReplyTextChars: positiveInteger(8000),
 })
 
 export const name = 'dsh-supervisor'

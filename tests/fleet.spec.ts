@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentCarrier, Inbox, type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
-import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createToolResultMessage, createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as plugin from '../src/index.js'
 import { type Config, FleetError, InProcessFleetProvider } from '../src/index.js'
@@ -13,6 +13,10 @@ const TEST_CONFIG: Config = {
   targetRefTtlMs: 1_000,
   selectionTtlMs: 500,
   maxSelectionsPerCaller: 2,
+  replyReceiptTtlMs: 2_000,
+  maxReplyRecordsPerCaller: 2,
+  maxReplyMessages: 2,
+  maxReplyTextChars: 6,
 }
 
 interface StubAgent extends Agent {
@@ -125,6 +129,44 @@ function enterChild(ctx: Context, child: StubAgent, owner: StubAgent): () => voi
 
 function emitStatus(ctx: Context, agent: StubAgent): void {
   ctx.emit(agentCarrier(agent), 'agent/status', { agent, status: agent.status })
+}
+
+function emitClaimed(ctx: Context, agent: StubAgent, message: UserMessage, turn: number): void {
+  ctx.emit(agentCarrier(agent), 'agent/inbox/claimed', { agent, message, turn })
+}
+
+function emitDiscarded(ctx: Context, agent: StubAgent, message: UserMessage): void {
+  ctx.emit(agentCarrier(agent), 'agent/inbox/discarded', { agent, message })
+}
+
+function appendReplyTurn(
+  target: StubAgent,
+  relay: UserMessage,
+  turn: number,
+  assistantTexts: string[],
+  options: { admitted?: boolean; reason?: { kind: 'completed' } | { kind: 'aborted'; reason: { kind: 'user' } } } = {},
+): void {
+  emitClaimed(target.ctx, target, relay, turn)
+  const publish = (event: SessionEvent) => { target.ctx.emit('session/event', target.session, event) }
+  publish(target.session.append('turn/start', { turn }))
+  if (options.admitted !== false) {
+    publish(target.session.append('user/message', relay, { surfaceOp: 'append' }))
+  }
+  assistantTexts.forEach((text, index) => {
+    publish(target.session.append('assistant/message', {
+      turn,
+      step: index + 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+    }, { surfaceOp: 'append' }))
+  })
+  publish(target.session.append('turn/end', {
+    turn,
+    reason: options.reason ?? { kind: 'completed' },
+  }))
 }
 
 function expectFleetCode(action: () => unknown, code: FleetError['code']): void {
@@ -651,7 +693,13 @@ describe('Fleet L1 behavior', () => {
       callerAgent: caller,
       callerSessionId: 'caller-session',
     })
-    expect(sent).toEqual({ sessionId: target.id, messageId: expect.any(String), deliveryId: expect.stringMatching(/^fd_[A-Za-z0-9_-]+$/) })
+    expect(sent).toEqual({
+      sessionId: target.id,
+      messageId: expect.any(String),
+      deliveryId: expect.stringMatching(/^fd_[A-Za-z0-9_-]{16}$/),
+      replyReceipt: expect.stringMatching(/^fr_[A-Za-z0-9_-]{16}$/),
+      replyReceiptExpiresAt: expect.any(Number),
+    })
     expect(target.followup).toHaveBeenCalledOnce()
     const relay = target.followup.mock.calls[0]?.[0]
     expect(relay).toMatchObject({
@@ -694,6 +742,259 @@ describe('Fleet L1 behavior', () => {
       { kind: 'hook', reason: 'fleet-cancel' },
       { keepInbox: true },
     )
+  })
+
+  it('20c. observes the complete claimed turn and retains a reply completed before waiting', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'reply-caller')
+    const target = createStubAgent(ctx, 'reply-target')
+    register(ctx, caller, target)
+    const targetRef = ctx.fleet.listTargets({ callerAgent: caller, callerSessionId: caller.id })
+      .find(entry => entry.sessionId === target.id)?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    const selection = ctx.fleet.inspectTarget(targetRef, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    }).selection
+    if (selection === undefined) throw new Error('missing selection')
+    const receipt = ctx.fleet.sendSelected(selection.handle, 'reply please', {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    const relay = target.followup.mock.calls[0]?.[0] as UserMessage | undefined
+    if (relay === undefined) throw new Error('missing relay')
+
+    appendReplyTurn(target, relay, 3, ['first-long', 'second-long', 'third'])
+
+    await expect(ctx.fleet.waitForReply(receipt.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })).resolves.toEqual({
+      outcome: 'turn-ended',
+      sessionId: target.id,
+      messageId: relay.id,
+      deliveryId: receipt.deliveryId,
+      turn: 3,
+      admitted: true,
+      assistantMessages: [
+        { messageId: expect.any(String), step: 2, text: 'second', textTruncated: true },
+        { messageId: expect.any(String), step: 3, text: 'third', textTruncated: false },
+      ],
+      omittedAssistantMessages: 1,
+      turnEndReason: { kind: 'completed' },
+    })
+    await expect(ctx.fleet.waitForReply(receipt.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })).rejects.toMatchObject({ code: 'fleet-reply-invalid' })
+  })
+
+  it('20d. reports rejected claimed turns and pending-message discard without idle heuristics', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'reply-caller')
+    const target = createStubAgent(ctx, 'reply-target')
+    register(ctx, caller, target)
+    const targetRef = ctx.fleet.listTargets({ callerAgent: caller, callerSessionId: caller.id })
+      .find(entry => entry.sessionId === target.id)?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    const issue = () => {
+      const selection = ctx.fleet.inspectTarget(targetRef, {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      }).selection
+      if (selection === undefined) throw new Error('missing selection')
+      return ctx.fleet.sendSelected(selection.handle, 'reply please', {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      })
+    }
+
+    const rejected = issue()
+    const rejectedRelay = target.followup.mock.calls[0]?.[0] as UserMessage | undefined
+    if (rejectedRelay === undefined) throw new Error('missing rejected relay')
+    const rejectedWait = ctx.fleet.waitForReply(rejected.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    appendReplyTurn(target, rejectedRelay, 4, [], { admitted: false })
+    await expect(rejectedWait).resolves.toMatchObject({
+      outcome: 'turn-ended', turn: 4, admitted: false, assistantMessages: [],
+    })
+
+    const discarded = issue()
+    const discardedRelay = target.followup.mock.calls[1]?.[0] as UserMessage | undefined
+    if (discardedRelay === undefined) throw new Error('missing discarded relay')
+    const discardedWait = ctx.fleet.waitForReply(discarded.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    emitDiscarded(ctx, target, discardedRelay)
+    await expect(discardedWait).resolves.toEqual({
+      outcome: 'discarded',
+      sessionId: target.id,
+      messageId: discardedRelay.id,
+      deliveryId: discarded.deliveryId,
+      assistantMessages: [],
+      omittedAssistantMessages: 0,
+    })
+  })
+
+  it('20e. binds reply observation to the exact caller and target lifecycle', async () => {
+    const { ctx } = await createHarness()
+    const caller = createStubAgent(ctx, 'reply-caller')
+    const other = createStubAgent(ctx, 'other-caller')
+    const target = createStubAgent(ctx, 'reply-target')
+    const detachments = register(ctx, caller, other, target)
+    const targetRef = ctx.fleet.listTargets({ callerAgent: caller, callerSessionId: caller.id })
+      .find(entry => entry.sessionId === target.id)?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    const issue = () => {
+      const selection = ctx.fleet.inspectTarget(targetRef, {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      }).selection
+      if (selection === undefined) throw new Error('missing selection')
+      return ctx.fleet.sendSelected(selection.handle, 'reply please', {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      })
+    }
+
+    const foreign = issue()
+    await expect(ctx.fleet.waitForReply(foreign.replyReceipt, {
+      callerAgent: other,
+      callerSessionId: other.id,
+    })).rejects.toMatchObject({ code: 'fleet-reply-invalid' })
+
+    const refreshedTargetRef = ctx.fleet.listTargets({ callerAgent: caller, callerSessionId: caller.id })
+      .find(entry => entry.sessionId === target.id)?.targetRef
+    if (refreshedTargetRef === undefined) throw new Error('missing refreshed target reference')
+    const unavailableSelection = ctx.fleet.inspectTarget(refreshedTargetRef, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    }).selection
+    if (unavailableSelection === undefined) throw new Error('missing replacement selection')
+    const unavailable = ctx.fleet.sendSelected(unavailableSelection.handle, 'reply please', {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    const relay = target.followup.mock.calls[1]?.[0] as UserMessage | undefined
+    if (relay === undefined) throw new Error('missing relay')
+    emitClaimed(ctx, target, relay, 5)
+    const waiting = ctx.fleet.waitForReply(unavailable.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    detachments[2]?.()
+    await expect(waiting).resolves.toMatchObject({
+      outcome: 'target-unavailable', turn: 5, admitted: false,
+    })
+  })
+
+  it('20f. makes abort observation-only and rejects caller capacity before another follow-up', async () => {
+    const { ctx } = await createHarness({ ...TEST_CONFIG, maxReplyRecordsPerCaller: 1 })
+    const caller = createStubAgent(ctx, 'reply-caller')
+    const target = createStubAgent(ctx, 'reply-target')
+    register(ctx, caller, target)
+    const targetRef = ctx.fleet.listTargets({ callerAgent: caller, callerSessionId: caller.id })
+      .find(entry => entry.sessionId === target.id)?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    const select = () => {
+      const selection = ctx.fleet.inspectTarget(targetRef, {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      }).selection
+      if (selection === undefined) throw new Error('missing selection')
+      return selection.handle
+    }
+    const first = ctx.fleet.sendSelected(select(), 'first', {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    expectFleetCode(
+      () => ctx.fleet.sendSelected(select(), 'second', { callerAgent: caller, callerSessionId: caller.id }),
+      'fleet-reply-capacity',
+    )
+    expect(target.followup).toHaveBeenCalledOnce()
+
+    const controller = new AbortController()
+    const waiting = ctx.fleet.waitForReply(first.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+      signal: controller.signal,
+    })
+    controller.abort('stop waiting')
+    await expect(waiting).rejects.toBe('stop waiting')
+    expect(target.cancel).not.toHaveBeenCalled()
+    expect(target.steer).not.toHaveBeenCalled()
+
+    expect(() => ctx.fleet.sendSelected(select(), 'after abort', {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })).not.toThrow()
+    expect(target.followup).toHaveBeenCalledTimes(2)
+  })
+
+  it('20g. expires unobserved receipts and rejects active waiters on caller or Provider teardown', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    const { ctx, fleetFiber } = await createHarness({ ...TEST_CONFIG, replyReceiptTtlMs: 10 })
+    const caller = createStubAgent(ctx, 'reply-caller')
+    const target = createStubAgent(ctx, 'reply-target')
+    const detachments = register(ctx, caller, target)
+    const targetRef = ctx.fleet.listTargets({ callerAgent: caller, callerSessionId: caller.id })
+      .find(entry => entry.sessionId === target.id)?.targetRef
+    if (targetRef === undefined) throw new Error('missing target reference')
+    const issue = () => {
+      const selection = ctx.fleet.inspectTarget(targetRef, {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      }).selection
+      if (selection === undefined) throw new Error('missing selection')
+      return ctx.fleet.sendSelected(selection.handle, 'reply please', {
+        callerAgent: caller,
+        callerSessionId: caller.id,
+      })
+    }
+
+    const expired = issue()
+    vi.advanceTimersByTime(10)
+    await expect(ctx.fleet.waitForReply(expired.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })).rejects.toMatchObject({ code: 'fleet-reply-invalid' })
+
+    const callerGone = issue()
+    const callerWait = ctx.fleet.waitForReply(callerGone.replyReceipt, {
+      callerAgent: caller,
+      callerSessionId: caller.id,
+    })
+    detachments[0]?.()
+    await expect(callerWait).rejects.toMatchObject({ code: 'fleet-caller-unavailable' })
+
+    const replacementCaller = createStubAgent(ctx, caller.id)
+    register(ctx, replacementCaller)
+    const replacementTargetRef = ctx.fleet.listTargets({
+      callerAgent: replacementCaller,
+      callerSessionId: replacementCaller.id,
+    }).find(entry => entry.sessionId === target.id)?.targetRef
+    if (replacementTargetRef === undefined) throw new Error('missing replacement target reference')
+    const selection = ctx.fleet.inspectTarget(replacementTargetRef, {
+      callerAgent: replacementCaller,
+      callerSessionId: replacementCaller.id,
+    }).selection
+    if (selection === undefined) throw new Error('missing selection')
+    const unloading = ctx.fleet.sendSelected(selection.handle, 'reply please', {
+      callerAgent: replacementCaller,
+      callerSessionId: replacementCaller.id,
+    })
+    const unloadWait = ctx.fleet.waitForReply(unloading.replyReceipt, {
+      callerAgent: replacementCaller,
+      callerSessionId: replacementCaller.id,
+    })
+    await fleetFiber.dispose()
+    await expect(unloadWait).rejects.toMatchObject({ code: 'fleet-unavailable' })
+    expect(target.cancel).not.toHaveBeenCalled()
   })
 
   it('20a. rejects a caller string that does not identify the exact caller Agent', async () => {
@@ -950,6 +1251,10 @@ describe('Fleet L1 behavior', () => {
     expectFleetCode(() => fleet.listTargets({ callerAgent: root, callerSessionId: 'root' }), 'fleet-unavailable')
     expectFleetCode(() => fleet.inspectTarget('ft_stale', { callerAgent: root, callerSessionId: 'root' }), 'fleet-unavailable')
     expectFleetCode(() => fleet.sendSelected('fs_stale', 'x', { callerAgent: root, callerSessionId: 'root' }), 'fleet-unavailable')
+    await expect(fleet.waitForReply('fr_stale', {
+      callerAgent: root,
+      callerSessionId: 'root',
+    })).rejects.toMatchObject({ code: 'fleet-unavailable' })
     expectFleetCode(() => fleet.steerSelected('fs_stale', 'x', { callerAgent: root, callerSessionId: 'root' }), 'fleet-unavailable')
     expectFleetCode(() => fleet.cancelSelected('fs_stale', { callerAgent: root, callerSessionId: 'root' }), 'fleet-unavailable')
     expect(listAgents).not.toHaveBeenCalled()
@@ -1037,6 +1342,10 @@ describe('Fleet L1 behavior', () => {
       targetRefTtlMs: 1_000,
       selectionTtlMs: 500,
       maxSelectionsPerCaller: 2,
+      replyReceiptTtlMs: 2_000,
+      maxReplyRecordsPerCaller: 2,
+      maxReplyMessages: 2,
+      maxReplyTextChars: 6,
     })
     await expect(fiber).rejects.toThrow('defaultTailMessages must be less than or equal to maxTailMessages')
     await fiber.dispose()

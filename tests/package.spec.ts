@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as plugin from '../src/index.js'
+import * as replyJobPlugin from '../src/reply-job.js'
 import * as toolPlugin from '../src/tool.js'
 
 describe('package entry point', () => {
@@ -12,9 +13,15 @@ describe('package entry point', () => {
       exports: Record<string, unknown>
     }
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-brand']).toBe('0.1.0-rc.6')
+    expect(packageJson.peerDependencies['@deepseek-ai/dsh-jobs']).toBe('0.1.0-rc.6')
     expect(packageJson.peerDependencies['@deepseek-ai/dsh-session-title']).toBe('0.1.0-rc.6')
+    expect(packageJson.peerDependenciesMeta['@deepseek-ai/dsh-jobs']).toEqual({ optional: true })
     expect(packageJson.peerDependenciesMeta['@deepseek-ai/dsh-session-title']).toEqual({ optional: true })
-    expect(packageJson.exports).toMatchObject({ '.': expect.any(Object), './tool': expect.any(Object) })
+    expect(packageJson.exports).toMatchObject({
+      '.': expect.any(Object),
+      './tool': expect.any(Object),
+      './reply-job': expect.any(Object),
+    })
   })
 
   it('keeps the Loader-safe namespace plugin shape', () => {
@@ -29,6 +36,7 @@ describe('package entry point', () => {
     expect(plugin.FleetService).toBeTypeOf('function')
     expect(plugin.InProcessFleetProvider).toBeTypeOf('function')
     expect('FleetRelayMessageSource' in plugin).toBe(false)
+    expect('FleetReplyReceipt' in plugin).toBe(false)
   })
 
   it('keeps the tool subpath namespace Loader-safe', () => {
@@ -42,6 +50,19 @@ describe('package entry point', () => {
     expect(unwrapped.apply).toBe(toolPlugin.apply)
   })
 
+  it('keeps the reply-job subpath namespace Loader-safe', () => {
+    expect('default' in replyJobPlugin).toBe(false)
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(replyJobPlugin) as Record<string, unknown>
+    expect(unwrapped).toBe(replyJobPlugin)
+    expect(unwrapped.name).toBe('tool-dsh-supervisor-reply-job')
+    expect(unwrapped.inject).toEqual(['tools', 'fleet'])
+    expect(unwrapped.Config).toBe(replyJobPlugin.Config)
+    expect(unwrapped.apply).toBe(replyJobPlugin.apply)
+    expect(replyJobPlugin.Config()).toEqual({ maxOutputBytes: 300_000 })
+    expect(() => replyJobPlugin.Config({ maxOutputBytes: 0 })).toThrow()
+  })
+
   it('schema supplies defaults and validates positive integers', () => {
     expect(plugin.Config()).toEqual({
       defaultTailMessages: 8,
@@ -50,6 +71,10 @@ describe('package entry point', () => {
       targetRefTtlMs: 300_000,
       selectionTtlMs: 60_000,
       maxSelectionsPerCaller: 32,
+      replyReceiptTtlMs: 600_000,
+      maxReplyRecordsPerCaller: 32,
+      maxReplyMessages: 8,
+      maxReplyTextChars: 8000,
     })
     const valid = {
       defaultTailMessages: 8,
@@ -58,6 +83,10 @@ describe('package entry point', () => {
       targetRefTtlMs: 300_000,
       selectionTtlMs: 60_000,
       maxSelectionsPerCaller: 32,
+      replyReceiptTtlMs: 600_000,
+      maxReplyRecordsPerCaller: 32,
+      maxReplyMessages: 8,
+      maxReplyTextChars: 8000,
     }
     for (const invalid of [
       { ...valid, defaultTailMessages: 0 },
@@ -68,6 +97,10 @@ describe('package entry point', () => {
       { ...valid, targetRefTtlMs: 0 },
       { ...valid, selectionTtlMs: 1.5 },
       { ...valid, maxSelectionsPerCaller: -1 },
+      { ...valid, replyReceiptTtlMs: 0 },
+      { ...valid, maxReplyRecordsPerCaller: 1.5 },
+      { ...valid, maxReplyMessages: 0 },
+      { ...valid, maxReplyTextChars: Number.MAX_VALUE },
     ]) {
       expect(() => plugin.Config(invalid)).toThrow()
     }

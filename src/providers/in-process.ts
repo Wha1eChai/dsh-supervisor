@@ -2,12 +2,16 @@ import { randomBytes } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type ContentBlock, type Message, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
 import { classifyAgent, resolveControl } from '../classify.js'
 import { FleetService } from '../service.js'
-import { parseFleetRelaySource, type FleetDeliveryId } from '../relay.js'
+import {
+  parseFleetRelaySource,
+  type FleetDeliveryId,
+  type FleetReplyReceipt,
+} from '../relay.js'
 import {
   FleetError,
   type FleetAgentKind,
@@ -22,8 +26,12 @@ import {
   type FleetListFilter,
   type FleetMessageSummary,
   type FleetRelayView,
+  type FleetReplyMessage,
+  type FleetReplyResult,
+  type FleetReplyWaitOptions,
   type FleetSelectedCancelOptions,
   type FleetSelectedWriteOptions,
+  type FleetSendReceipt,
   type FleetTargetInspectOptions,
   type FleetTargetInspectView,
   type FleetTargetListOptions,
@@ -38,6 +46,10 @@ export interface InProcessFleetConfig {
   targetRefTtlMs: number
   selectionTtlMs: number
   maxSelectionsPerCaller: number
+  replyReceiptTtlMs: number
+  maxReplyRecordsPerCaller: number
+  maxReplyMessages: number
+  maxReplyTextChars: number
 }
 
 interface TargetRecord {
@@ -50,6 +62,30 @@ interface TargetRecord {
 
 interface SelectionRecord extends TargetRecord {}
 
+interface ReplyWaiter {
+  resolve(result: FleetReplyResult): void
+  reject(error: unknown): void
+  cleanup(): void
+}
+
+interface ReplyRecord {
+  receipt: FleetReplyReceipt
+  callerAgent: Agent
+  callerSessionId: string
+  targetAgent: Agent
+  targetSessionId: string
+  messageId: string
+  deliveryId: FleetDeliveryId
+  expiresAt: number
+  turn?: number
+  admitted: boolean
+  assistantMessages: FleetReplyMessage[]
+  omittedAssistantMessages: number
+  result?: FleetReplyResult
+  waiter?: ReplyWaiter
+  observing: boolean
+}
+
 /** Process-local Fleet provider backed by `ctx.agents`. */
 export class InProcessFleetProvider extends FleetService {
   static inject = ['agents']
@@ -58,6 +94,7 @@ export class InProcessFleetProvider extends FleetService {
   private readonly runtimeKinds = new WeakMap<Agent, FleetAgentKind>()
   private readonly targetReferences = new Map<string, TargetRecord>()
   private readonly selections = new Map<string, SelectionRecord>()
+  private readonly replies = new Map<string, ReplyRecord>()
   private active = true
 
   /**
@@ -70,6 +107,9 @@ export class InProcessFleetProvider extends FleetService {
     // Agent lifecycle events carry scoped subjects, so the host-level Fleet bridge listens globally.
     ctx.on('agent/created', ({ agent }) => { this.publishLive('created', agent) }, { global: true })
     ctx.on('agent/status', ({ agent }) => { this.publishLive('status', agent) }, { global: true })
+    ctx.on('agent/inbox/claimed', payload => { this.onInboxClaimed(payload) }, { global: true })
+    ctx.on('agent/inbox/discarded', payload => { this.onInboxDiscarded(payload) }, { global: true })
+    ctx.on('session/event', (session, event) => { this.onSessionEvent(session, event) }, { global: true })
     ctx.on('agent/disposed', ({ agent }) => { this.publishDisposed(agent) }, { global: true })
 
     const agents = ctx.agents.list()
@@ -78,9 +118,12 @@ export class InProcessFleetProvider extends FleetService {
 
     ctx.effect(() => () => {
       this.active = false
+      const error = new FleetError('fleet-unavailable', 'fleet-unavailable: Fleet provider is unloaded')
+      for (const record of [...this.replies.values()]) this.rejectReply(record, error)
       this.listeners.clear()
       this.targetReferences.clear()
       this.selections.clear()
+      this.replies.clear()
     }, 'fleet.eventBridge()')
   }
 
@@ -175,15 +218,50 @@ export class InProcessFleetProvider extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): FleetDeliveryReceipt {
+  ): FleetSendReceipt {
     this.requireActive()
     validateMessageText(text)
-    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
-    const agent = this.requireWritableSelected(record)
-    const message = createFleetRelayMessage(text, record.callerAgent)
+    const selection = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
+    const agent = this.requireWritableSelected(selection)
+    const message = createFleetRelayMessage(text, selection.callerAgent)
+    const source = relaySource(message)
+    const reply = this.issueReplyRecord(selection, message.id, source.deliveryId)
     this.selections.delete(selectionHandle)
-    agent.followup(message)
-    return { sessionId: record.targetSessionId, messageId: message.id, deliveryId: relaySource(message).deliveryId }
+    try {
+      agent.followup(message)
+    } catch (error) {
+      this.replies.delete(reply.receipt)
+      throw error
+    }
+    return {
+      sessionId: selection.targetSessionId,
+      messageId: message.id,
+      deliveryId: source.deliveryId,
+      replyReceipt: reply.receipt,
+      replyReceiptExpiresAt: reply.expiresAt,
+    }
+  }
+
+  /** Observe the complete turn that claims one selected follow-up. */
+  async waitForReply(replyReceipt: string, options: FleetReplyWaitOptions): Promise<FleetReplyResult> {
+    this.requireActive()
+    options.signal?.throwIfAborted()
+    const record = this.requireReplyRecord(replyReceipt, options.callerAgent, options.callerSessionId)
+    if (record.observing) throw invalidReply()
+    record.observing = true
+    if (record.result !== undefined) {
+      this.replies.delete(replyReceipt)
+      return record.result
+    }
+    return new Promise<FleetReplyResult>((resolve, reject) => {
+      const onAbort = () => {
+        this.rejectReply(record, options.signal?.reason ?? new Error('Fleet reply observation aborted'))
+      }
+      const cleanup = () => { options.signal?.removeEventListener('abort', onAbort) }
+      record.waiter = { resolve, reject, cleanup }
+      options.signal?.addEventListener('abort', onAbort, { once: true })
+      if (options.signal?.aborted === true) onAbort()
+    })
   }
 
   /** Submit steering through one single-attempt confirmed target selection. */
@@ -411,6 +489,174 @@ export class InProcessFleetProvider extends FleetService {
     )
   }
 
+  /** Reserve one bounded caller-owned reply record before the follow-up side effect. */
+  private issueReplyRecord(
+    selection: SelectionRecord,
+    messageId: string,
+    deliveryId: FleetDeliveryId,
+  ): ReplyRecord {
+    const now = Date.now()
+    this.pruneExpired(now)
+    const callerCount = [...this.replies.values()]
+      .filter(record => record.callerAgent === selection.callerAgent)
+      .length
+    if (callerCount >= this.config.maxReplyRecordsPerCaller) {
+      throw new FleetError(
+        'fleet-reply-capacity',
+        'fleet-reply-capacity: the caller has too many unconsumed Fleet reply records. '
+          + 'No action was taken. Observe or abandon an earlier reply before retrying.',
+      )
+    }
+    const receipt = createToken('fr_', this.replies) as FleetReplyReceipt
+    const record: ReplyRecord = {
+      receipt,
+      callerAgent: selection.callerAgent,
+      callerSessionId: selection.callerSessionId,
+      targetAgent: selection.targetAgent,
+      targetSessionId: selection.targetSessionId,
+      messageId,
+      deliveryId,
+      expiresAt: now + this.config.replyReceiptTtlMs,
+      admitted: false,
+      assistantMessages: [],
+      omittedAssistantMessages: 0,
+      observing: false,
+    }
+    this.replies.set(receipt, record)
+    return record
+  }
+
+  /** Resolve one caller-bound reply capability without substituting another delivery. */
+  private requireReplyRecord(
+    replyReceipt: string,
+    callerAgent: Agent,
+    callerSessionId: string,
+  ): ReplyRecord {
+    this.pruneExpired(Date.now())
+    const record = this.replies.get(replyReceipt)
+    if (record === undefined) throw invalidReply()
+    let caller: Agent
+    try {
+      caller = this.requireCaller(callerAgent, callerSessionId)
+    } catch (error) {
+      this.replies.delete(replyReceipt)
+      throw error
+    }
+    if (record.callerAgent !== caller || record.callerSessionId !== callerSessionId) {
+      this.replies.delete(replyReceipt)
+      throw invalidReply()
+    }
+    if (record.result === undefined
+      && this.ctx.agents.get(SessionId(record.targetSessionId)) !== record.targetAgent) {
+      this.settleReply(record, {
+        ...this.replyResultBase(record),
+        outcome: 'target-unavailable',
+        ...(record.turn === undefined ? {} : { turn: record.turn }),
+        admitted: record.admitted,
+      })
+    }
+    return record
+  }
+
+  /** Bind one exact delivered Fleet follow-up to the turn that claimed it. */
+  private onInboxClaimed(payload: { agent: Agent; message: UserMessage; turn: number }): void {
+    if (!this.active) return
+    for (const record of this.replies.values()) {
+      if (record.result === undefined
+        && record.targetAgent === payload.agent
+        && record.messageId === payload.message.id) {
+        record.turn = payload.turn
+      }
+    }
+  }
+
+  /** Settle one accepted follow-up that left the inbox before any turn claimed it. */
+  private onInboxDiscarded(payload: { agent: Agent; message: UserMessage }): void {
+    if (!this.active) return
+    for (const record of this.replies.values()) {
+      if (record.result === undefined
+        && record.targetAgent === payload.agent
+        && record.messageId === payload.message.id) {
+        this.settleReply(record, {
+          ...this.replyResultBase(record),
+          outcome: 'discarded',
+          assistantMessages: [],
+          omittedAssistantMessages: 0,
+        })
+      }
+    }
+  }
+
+  /** Fold committed events from the exact claimed turn into a bounded terminal result. */
+  private onSessionEvent(session: Session, event: SessionEvent): void {
+    if (!this.active) return
+    for (const record of this.replies.values()) {
+      if (record.result !== undefined || record.targetAgent.session !== session) continue
+      if (event.type === 'user/message' && event.data.id === record.messageId) {
+        record.admitted = true
+        continue
+      }
+      if (record.turn === undefined) continue
+      if (event.type === 'assistant/message' && event.data.turn === record.turn) {
+        const text = extractText(event.data.message.content)
+        if (text.length === 0) continue
+        const textTruncated = text.length > this.config.maxReplyTextChars
+        record.assistantMessages.push({
+          messageId: event.data.message.id,
+          step: event.data.step,
+          text: text.slice(0, this.config.maxReplyTextChars),
+          textTruncated,
+        })
+        while (record.assistantMessages.length > this.config.maxReplyMessages) {
+          record.assistantMessages.shift()
+          record.omittedAssistantMessages += 1
+        }
+        continue
+      }
+      if (event.type === 'turn/end' && event.data.turn === record.turn) {
+        this.settleReply(record, {
+          ...this.replyResultBase(record),
+          outcome: 'turn-ended',
+          turn: record.turn,
+          admitted: record.admitted,
+          turnEndReason: event.data.reason,
+        })
+      }
+    }
+  }
+
+  /** Snapshot common reply fields without exposing live Provider state. */
+  private replyResultBase(record: ReplyRecord) {
+    return {
+      sessionId: record.targetSessionId,
+      messageId: record.messageId,
+      deliveryId: record.deliveryId,
+      assistantMessages: record.assistantMessages.map(message => ({ ...message })),
+      omittedAssistantMessages: record.omittedAssistantMessages,
+    }
+  }
+
+  /** Commit one first-wins terminal reply result and release its sole observer. */
+  private settleReply(record: ReplyRecord, result: FleetReplyResult): void {
+    if (record.result !== undefined) return
+    record.result = result
+    const waiter = record.waiter
+    if (waiter === undefined) return
+    record.waiter = undefined
+    waiter.cleanup()
+    this.replies.delete(record.receipt)
+    waiter.resolve(result)
+  }
+
+  /** Reject one active observation and release every listener it owns. */
+  private rejectReply(record: ReplyRecord, error: unknown): void {
+    const waiter = record.waiter
+    record.waiter = undefined
+    waiter?.cleanup()
+    this.replies.delete(record.receipt)
+    waiter?.reject(error)
+  }
+
   /** Remove expired confirmed-target state without a background timer. */
   private pruneExpired(now: number): void {
     for (const [handle, record] of this.targetReferences) {
@@ -419,15 +665,33 @@ export class InProcessFleetProvider extends FleetService {
     for (const [handle, record] of this.selections) {
       if (now >= record.expiresAt) this.selections.delete(handle)
     }
+    for (const [receipt, record] of this.replies) {
+      if (!record.observing && now >= record.expiresAt) this.replies.delete(receipt)
+    }
   }
 
-  /** Remove every reference where one disposed Agent was caller or target. */
+  /** Remove transient authority and settle reply observation for one disposed exact Agent. */
   private invalidateAgentRecords(agent: Agent): void {
     for (const [handle, record] of this.targetReferences) {
       if (record.callerAgent === agent || record.targetAgent === agent) this.targetReferences.delete(handle)
     }
     for (const [handle, record] of this.selections) {
       if (record.callerAgent === agent || record.targetAgent === agent) this.selections.delete(handle)
+    }
+    for (const record of [...this.replies.values()]) {
+      if (record.callerAgent === agent) {
+        this.rejectReply(record, new FleetError(
+          'fleet-caller-unavailable',
+          'fleet-caller-unavailable: the owning Fleet session is no longer the exact live Agent.',
+        ))
+      } else if (record.targetAgent === agent && record.result === undefined) {
+        this.settleReply(record, {
+          ...this.replyResultBase(record),
+          outcome: 'target-unavailable',
+          ...(record.turn === undefined ? {} : { turn: record.turn }),
+          admitted: record.admitted,
+        })
+      }
     }
   }
 
@@ -515,6 +779,14 @@ function invalidSelection(): FleetError {
     'fleet-selection-invalid',
     'fleet-selection-invalid: the selection handle is invalid or no longer usable. '
       + 'No action was taken. Do not substitute another Fleet session. Relist or ask the user.',
+  )
+}
+
+function invalidReply(): FleetError {
+  return new FleetError(
+    'fleet-reply-invalid',
+    'fleet-reply-invalid: the reply receipt is invalid or no longer observable. '
+      + 'No target action was taken. Do not substitute another Fleet delivery.',
   )
 }
 

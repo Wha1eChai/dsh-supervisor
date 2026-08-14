@@ -104,12 +104,13 @@ subscribe(listener) -> disposer
 
 listTargets(options) -> FleetTargetView[]
 inspectTarget(targetRef, options) -> FleetTargetInspectView
-sendSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
+sendSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId, replyReceipt, replyReceiptExpiresAt }
+waitForReply(replyReceipt, options) -> FleetReplyResult
 steerSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
 cancelSelected(selectionHandle, options) -> { sessionId, accepted: true }
 ```
 
-Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable` 拒绝上述操作，不再读取 Agent 注册表或调用 Agent，并清空所有 target reference 与 selection。
+Provider 卸载后，任何保留的旧 Service 引用都以 `fleet-unavailable` 拒绝上述操作，不再读取 Agent 注册表或调用 Agent，并清空所有 target reference、selection 与 reply record；active reply waiter 同样失败。
 
 `subscribe` 的 listener 是观察者。同步异常和返回 Promise 的拒绝会逐个记录，并且不阻断 Agent 生命周期或其他 Fleet listener。
 
@@ -134,6 +135,12 @@ control: 'direct' | 'subagent' | 'observe-only'
 两类 handle 都只存在于 Provider 内部，并绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry。Confirmed-target Service options 必须携带 ToolRuntime 提供的 exact caller Agent；`callerSessionId` 只是与该对象的交叉校验。使用时再次核对 registry 的 exact-object identity；caller/target replacement、disposal、expiry、unload 或 mismatch 都失效。Selection 在 Agent 副作用前 single-attempt 消费。
 
 `sessionId` 在当前 DSH runtime 范围内稳定。未来任何 Session-list UI 必须展示它并提供复制操作；当前包没有该 UI。若未来支持多个 runtime，必须另行增加 runtime namespace 或等价寻址机制，不能假定当前 `sessionId` 已是全局 remote address。
+
+## Reply observation 与 Jobs 分工
+
+Selected follow-up 在 target side effect 前建立 caller-bound、exact-target-bound reply record。Provider 只用 `agent/inbox/claimed` 将 exact message 绑定到 turn，再从 exact target Session 的 `assistant/message` 与 `turn/end` 生成 bounded turn-level result。它不使用 `agent/status`、`whenIdle()` 或轮询，不声称 assistant output 只由该 message 因果产生，并且不把 steer 解释成独立 reply turn。
+
+`@wha1echai/dsh-supervisor/reply-job` 是独立 Consumer：只在 `ctx.jobs` 存在时注册 `fleet_wait` 并生产 `fleet-reply` job。它不注册 job list/output/kill，不 attach controller，不发送 completion notice；这些职责留给官方 Jobs Consumer。
 
 ## 当前 Provider 行为
 

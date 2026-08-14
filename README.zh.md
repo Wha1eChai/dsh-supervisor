@@ -4,7 +4,7 @@
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区插件，当前专注于同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供可替换的 `ctx.fleet` 服务，并通过该服务提供模型可调用的 `fleet_*` 工具。
 
-> **状态：Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分，以及 confirmed-target attributed relay。Fleet 服务、authoritative runtime ownership 分类和五个工具 Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。
+> **状态：Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。
 
@@ -51,9 +51,11 @@ confirmed-target 模型 `fleet_send` / `fleet_steer` 使用 versioned `fleet-rel
 
 挂载该 Consumer 后，已运行的 Session 会通过正常 ToolRuntime 组合，在下一次模型请求中看到当前配置的工具。它不会注入合成聊天消息，也不依赖永久 system prompt prose 来宣布 Fleet。
 
-可信程序化 Consumer 的 direct Service API 继续以 `sessionId` 作为当前 runtime 内的稳定路由标识。Selected write receipt 增加 opaque `deliveryId`，只表示 inbox 接受，不表示完成或 reply。模型工具改用 confirmed-target protocol：`fleet_list` 返回 caller-bound `targetRef`，`fleet_inspect` 接受该 reference，并可能签发 exact-Agent-bound、single-attempt 的 `selectionHandle`；写工具只接受 selection。无效、过期、caller mismatch、Agent replacement、Provider unload 或已使用的 handle 都 fail closed，绝不授权替换为其他 Session。每个 Agent view 仍包含 `sessionId`；未来任何 Session-list UI 都必须显示它并提供复制操作。
+可信程序化 Consumer 的 direct Service API 继续以 `sessionId` 作为当前 runtime 内的稳定路由标识。Selected steer receipt 包含 opaque `deliveryId`；selected send 还返回 caller-bound、single-observer 的 `replyReceipt`。Delivery 仍只表示 inbox 接受。`waitForReply()` 之后观察 claim exact message 的完整 turn，不用 Agent idle 作为证明，也不声称严格的 message-to-message 因果。模型工具改用 confirmed-target protocol：`fleet_list` 返回 caller-bound `targetRef`，`fleet_inspect` 接受该 reference，并可能签发 exact-Agent-bound、single-attempt 的 `selectionHandle`；写工具只接受 selection。无效、过期、caller mismatch、Agent replacement、Provider unload 或已使用的 handle 都 fail closed，绝不授权替换为其他 Session。每个 Agent view 仍包含 `sessionId`；未来任何 Session-list UI 都必须显示它并提供复制操作。
 
 `controlMode` 默认是 `read-only`。五个 confirmed-target 工具都把 owning Agent 的 exact object 传给 Provider，并从它派生 Session id 做交叉校验；模型字段不能提供 caller identity，没有 owning Agent 时直接失败。写授权继续由 `ctx.fleet` 判断。Fleet 通过 exact Agent 是否属于 `ctx.agents.roots()` 来分类 runtime root；durable `origin` 和 `parentSession` 元数据不影响 `kind` 或写授权。L2.1 中 delegated Agent 仍为只读，Consumer 不会绕过 Fleet 直接调用 subagent API。
+
+可选入口 `@wha1echai/dsh-supervisor/reply-job` 只在 `ctx.jobs` 已挂载时注册 `fleet_wait`。它创建 owner-scoped `fleet-reply` 后台 job；output/list/kill、controller 和 completion notice 继续由官方 job tools 负责。Kill job 只 abort reply observation，不 cancel target。
 
 挂载可选的 `sessionTitle` 服务后，Fleet 只从 exact live Session 读取日志中已经记录的标题，并把它作为 list/inspect 的展示字段。标题服务缺失或卸载时 Fleet 仍可用，只省略 `title`；标题不影响 identity、routing、selection、顺序、过滤或授权。Inspect 另外报告 tail limit 省略的消息数和每条消息的 `textTruncated` 事实。
 
@@ -124,7 +126,7 @@ allowBuilds:
 
 ## 使用
 
-Bundle 会安装两个 package entry。安全默认值只暴露 `fleet_list` 和 `fleet_inspect`。如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-supervisor-tools` 行：
+Bundle 会安装 Provider、核心工具 Consumer 和可选 reply-job Consumer 三个 package entry。安全默认值暴露 `fleet_list` 和 `fleet_inspect`；宿主 profile 同时挂载 public Jobs seam 和官方 Jobs controller Consumer 时还会出现 `fleet_wait`，但它只能消费已启用 `fleet_send` 返回的 reply receipt。如需启用消息或取消工具，在 profile 的 `cordis.patch.yml` 中完整覆盖 `dsh-supervisor-tools` 行：
 
 ```yaml
 - id: dsh-supervisor-tools
@@ -158,7 +160,7 @@ pnpm run build
 pnpm pack
 ```
 
-测试使用真实 `ToolRuntime`，验证 canonical value 和模型可见内容，并通过官方 Loader + Include 从 test-only `cordis.yml` 加载两个构建后的 package entry。测试还明确防止两个 namespace entry 出现 `default` export，并验证 Provider/Consumer 卸载。
+测试使用真实 `ToolRuntime`，验证 canonical value 和模型可见内容，并通过官方 Loader + Include 从 test-only `cordis.yml` 加载构建后的 Provider、tool 和 reply-job entry。测试还明确防止所有 namespace entry 出现 `default` export，并验证 Provider/Consumer 卸载。
 
 ## 路线 / TODO
 
@@ -169,6 +171,7 @@ pnpm pack
 - [x] **L2.2** — caller-bound target reference 和 exact-Agent-bound single-attempt selection，保证模型写入 fail closed。
 - [x] **L2.3** — 可选日志标题发现，以及 inspect omission/text-truncation 事实保真。
 - [x] **L2.4** — versioned attributed confirmed-target relay、exact caller 归因和 delivery correlation。
+- [x] **L2.5** — exact claimed-turn reply observation，以及不 busy-poll、不取消 target 的可选 `ctx.jobs`-backed `fleet_wait`。
 - [ ] **L2b** — 通过公开 subagent seam、携带精确 parent authority 的 delegated Session 写 API。
 - [ ] **L3** — 条件组合现有 Fleet、subagent 和 workflow Consumer 的 supervisor Agent preset。
 - [ ] **L4+** — 未来独立 profile、一等产品面和 transport；这些都不是当前支持。

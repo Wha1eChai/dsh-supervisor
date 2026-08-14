@@ -17,8 +17,11 @@ import type {
   FleetInspectOptions,
   FleetInspectView,
   FleetListFilter,
+  FleetReplyResult,
+  FleetReplyWaitOptions,
   FleetSelectedCancelOptions,
   FleetSelectedWriteOptions,
+  FleetSendReceipt,
   FleetTargetInspectOptions,
   FleetTargetInspectView,
   FleetTargetListOptions,
@@ -63,13 +66,14 @@ interface FleetCalls {
   listTargets: FleetTargetListOptions[]
   inspectTarget: Array<[string, FleetTargetInspectOptions]>
   sendSelected: Array<[string, string, FleetSelectedWriteOptions]>
+  waitForReply: Array<[string, FleetReplyWaitOptions]>
   steerSelected: Array<[string, string, FleetSelectedWriteOptions]>
   cancelSelected: Array<[string, FleetSelectedCancelOptions]>
 }
 
 class RecordingFleet extends FleetService {
   readonly calls: FleetCalls = {
-    listTargets: [], inspectTarget: [], sendSelected: [], steerSelected: [], cancelSelected: [],
+    listTargets: [], inspectTarget: [], sendSelected: [], waitForReply: [], steerSelected: [], cancelSelected: [],
   }
   listValue: FleetTargetView[] = []
   inspectValue: FleetTargetInspectView = {
@@ -122,7 +126,7 @@ class RecordingFleet extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): FleetDeliveryReceipt {
+  ): FleetSendReceipt {
     this.calls.sendSelected.push([selectionHandle, text, options])
     if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
@@ -130,7 +134,28 @@ class RecordingFleet extends FleetService {
         'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'] }
+    return {
+      sessionId: 'target',
+      messageId: 'send-message',
+      deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'],
+      replyReceipt: 'fr-send' as FleetSendReceipt['replyReceipt'],
+      replyReceiptExpiresAt: 3_000,
+    }
+  }
+
+  waitForReply(replyReceipt: string, options: FleetReplyWaitOptions): Promise<FleetReplyResult> {
+    this.calls.waitForReply.push([replyReceipt, options])
+    return Promise.resolve({
+      outcome: 'turn-ended',
+      sessionId: 'target',
+      messageId: 'send-message',
+      deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'],
+      turn: 1,
+      admitted: true,
+      assistantMessages: [],
+      omittedAssistantMessages: 0,
+      turnEndReason: { kind: 'completed' },
+    })
   }
 
   steerSelected(
@@ -442,8 +467,17 @@ describe('Fleet write tools', () => {
       caller_session_id: 'forged-caller', sender_session_id: 'forged-sender', target_session_id: 'forged-target',
     }, { agent: owner }))
     expect(fleet.calls.sendSelected).toEqual([['fs_send', '  keep spacing  ', { callerAgent: owner, callerSessionId: 'caller' }]])
-    expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' })
-    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target. Delivery fd-send.')
+    expect(sent.value).toEqual({
+      sessionId: 'target',
+      messageId: 'send-message',
+      deliveryId: 'fd-send',
+      replyReceipt: 'fr-send',
+      replyReceiptExpiresAt: 3_000,
+    })
+    expect(text(sent)).toBe(
+      'Queued follow-up send-message for confirmed Fleet session target. Delivery fd-send. '
+        + 'Reply receipt fr-send expires at 3000; use fleet_wait when that optional Jobs Consumer is available.',
+    )
     expect(ctx.tools.get('fleet_send')?.presentCall?.({
       selection_handle: 'fs_send', text: 'secret body',
     })).toEqual({

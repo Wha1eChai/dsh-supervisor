@@ -1,20 +1,5 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type {
-  FleetAgentView,
-  FleetCallerOptions,
-  FleetDeliveryReceipt,
-  FleetCancelOptions,
-  FleetEvent,
-  FleetInspectOptions,
-  FleetInspectView,
-  FleetListFilter,
-  FleetSelectedCancelOptions,
-  FleetSelectedWriteOptions,
-  FleetTargetInspectOptions,
-  FleetTargetInspectView,
-  FleetTargetListOptions,
-  FleetTargetView,
-} from './types.js'
+import type * as FleetTypes from './types.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -30,26 +15,26 @@ export abstract class FleetService extends Service {
   }
 
   /** List live agents visible to this provider; throws `fleet-unavailable` after unload. */
-  abstract list(filter?: FleetListFilter): FleetAgentView[]
+  abstract list(filter?: FleetTypes.FleetListFilter): FleetTypes.FleetAgentView[]
 
   /** Inspect one live agent without exposing runtime objects or raw events; throws `fleet-unavailable` after unload. */
-  abstract inspect(sessionId: string, options?: FleetInspectOptions): FleetInspectView
+  abstract inspect(sessionId: string, options?: FleetTypes.FleetInspectOptions): FleetTypes.FleetInspectView
 
   /** Queue a follow-up for one live root agent; throws `fleet-unavailable` after unload. */
-  abstract send(sessionId: string, text: string, options?: FleetCallerOptions): { messageId: string }
+  abstract send(sessionId: string, text: string, options?: FleetTypes.FleetCallerOptions): { messageId: string }
 
   /** Submit steering for one live root agent; throws `fleet-unavailable` after unload. */
-  abstract steer(sessionId: string, text: string, options?: FleetCallerOptions): { messageId: string }
+  abstract steer(sessionId: string, text: string, options?: FleetTypes.FleetCallerOptions): { messageId: string }
 
   /** Cancel one live root agent; throws `fleet-unavailable` after unload. */
-  abstract cancel(sessionId: string, options?: FleetCancelOptions): { accepted: true }
+  abstract cancel(sessionId: string, options?: FleetTypes.FleetCancelOptions): { accepted: true }
 
   /**
    * Issue caller-bound references for live targets.
    * @param options - exact owning caller Agent and optional live-target filters.
    * @returns JSON-safe target views with expiring opaque references.
    */
-  abstract listTargets(options: FleetTargetListOptions): FleetTargetView[]
+  abstract listTargets(options: FleetTypes.FleetTargetListOptions): FleetTypes.FleetTargetView[]
 
   /**
    * Inspect one target reference and issue a write selection when current policy permits it.
@@ -57,7 +42,7 @@ export abstract class FleetService extends Service {
    * @param options - exact owning caller Agent and transcript bound.
    * @returns the inspected Agent view and an optional single-attempt selection.
    */
-  abstract inspectTarget(targetRef: string, options: FleetTargetInspectOptions): FleetTargetInspectView
+  abstract inspectTarget(targetRef: string, options: FleetTypes.FleetTargetInspectOptions): FleetTypes.FleetTargetInspectView
 
   /**
    * Queue a follow-up through one single-attempt confirmed target selection.
@@ -69,8 +54,19 @@ export abstract class FleetService extends Service {
   abstract sendSelected(
     selectionHandle: string,
     text: string,
-    options: FleetSelectedWriteOptions,
-  ): FleetDeliveryReceipt
+    options: FleetTypes.FleetSelectedWriteOptions,
+  ): FleetTypes.FleetSendReceipt
+
+  /**
+   * Observe the complete turn that claims one selected follow-up.
+   * @param replyReceipt - caller-bound reply capability returned by `sendSelected`.
+   * @param options - exact owning caller Agent and optional cancellation of this observation.
+   * @returns one terminal turn-level result; never waits for whole-Agent idle.
+   */
+  abstract waitForReply(
+    replyReceipt: string,
+    options: FleetTypes.FleetReplyWaitOptions,
+  ): Promise<FleetTypes.FleetReplyResult>
 
   /**
    * Submit steering through one single-attempt confirmed target selection.
@@ -82,8 +78,8 @@ export abstract class FleetService extends Service {
   abstract steerSelected(
     selectionHandle: string,
     text: string,
-    options: FleetSelectedWriteOptions,
-  ): FleetDeliveryReceipt
+    options: FleetTypes.FleetSelectedWriteOptions,
+  ): FleetTypes.FleetDeliveryReceipt
 
   /**
    * Cancel through one single-attempt confirmed target selection.
@@ -93,9 +89,9 @@ export abstract class FleetService extends Service {
    */
   abstract cancelSelected(
     selectionHandle: string,
-    options: FleetSelectedCancelOptions,
+    options: FleetTypes.FleetSelectedCancelOptions,
   ): { sessionId: string; accepted: true }
 
   /** Subscribe to isolated lifecycle notifications; throws `fleet-unavailable` after unload. */
-  abstract subscribe(listener: (event: FleetEvent) => void | Promise<void>): () => void
+  abstract subscribe(listener: (event: FleetTypes.FleetEvent) => void | Promise<void>): () => void
 }
