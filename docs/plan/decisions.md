@@ -49,7 +49,7 @@
 34. `agent/disposed` 在 registry 删除后发出；Fleet 必须按 exact Agent 对象缓存 runtime classification，禁止在 disposal 路径读取 roots、按 id 查询当前 Agent、调用 `isOwnedBy` 或回退到 lineage。Provider 挂载时先监听 lifecycle，再 seed 已经 live 的 Agent。
 35. 传入 `callerSessionId` 时禁止控制自己。
 36. 取消原因：`{ kind: 'hook', reason: 'fleet-cancel' }`。
-37. 发送/转向来源：`{ kind: 'plugin', plugin: 'dsh-supervisor' }`。
+37. 发送/转向来源按调用车道区分：可信程序化 direct `send` / `steer` 保持 `{ kind: 'plugin', plugin: 'dsh-supervisor' }`；confirmed-target 模型 `sendSelected` / `steerSelected` 使用版本化 `fleet-relay` source。Confirmed-target 的 list/inspect/write lane 必须携带 ToolRuntime 提供的 exact caller Agent；Provider 将该 exact object 绑定到 transient target/selection state，并只从它派生 `senderSessionId`。`callerSessionId` 只是同一 exact object 的一致性校验，不能单独授予归因。Provider 同时生成 opaque `deliveryId` 并将其写入 source、model-visible header 和 delivery receipt；固定 marker 之后的 body 从独立 text block 开始并保持 untrusted。Relay attribution 不扩大写授权，不能由工具 schema、direct caller 字符串、标题或正文覆盖。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
 38. patch **只 insert** 自己的 row，不整行替换官方 bundle config。
 
 ## 工程

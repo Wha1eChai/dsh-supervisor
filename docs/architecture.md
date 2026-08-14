@@ -73,7 +73,7 @@ Fleet 可机会式读取可选的 `ctx.sessionTitle`，以 exact `agent.session`
 | Cordis `Service` + declaration merge | Fleet Definition |
 | `ctx.agents` | live Agent、runtime ownership 分类与 root 控制面 |
 | `Agent.session` / inbox / header | 视图投影 |
-| `createUserMessage` | `source.kind: 'plugin'` |
+| `createUserMessage` | direct `plugin` source and selected `fleet-relay` source |
 | `ctx.subagents`（可选） | delegated 控制分类；未来 child 写路径 |
 | `ctx.workflowEngine`（未来 L3 可选组合） | 主管编排 |
 | `ctx.tools` | `fleet_*` Consumer |
@@ -104,8 +104,8 @@ subscribe(listener) -> disposer
 
 listTargets(options) -> FleetTargetView[]
 inspectTarget(targetRef, options) -> FleetTargetInspectView
-sendSelected(selectionHandle, text, options) -> { sessionId, messageId }
-steerSelected(selectionHandle, text, options) -> { sessionId, messageId }
+sendSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
+steerSelected(selectionHandle, text, options) -> { sessionId, messageId, deliveryId }
 cancelSelected(selectionHandle, options) -> { sessionId, accepted: true }
 ```
 
@@ -131,7 +131,7 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 `sessionId` 仍是当前 runtime 内的 canonical routing identifier，direct Service API 继续使用它。模型工具不再跨调用提交 `sessionId`：`fleet_list` 为 owning caller 签发 `targetRef`，`fleet_inspect` 用它确认 exact target 并按当前写策略签发 `selectionHandle`，写工具只接受 selection。
 
-两类 handle 都只存在于 Provider 内部，并绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry。使用时再次核对 registry 的 exact-object identity；caller/target replacement、disposal、expiry、unload 或 mismatch 都失效。Selection 在 Agent 副作用前 single-attempt 消费。
+两类 handle 都只存在于 Provider 内部，并绑定 exact caller Agent、exact target Agent、Provider instance 和 expiry。Confirmed-target Service options 必须携带 ToolRuntime 提供的 exact caller Agent；`callerSessionId` 只是与该对象的交叉校验。使用时再次核对 registry 的 exact-object identity；caller/target replacement、disposal、expiry、unload 或 mismatch 都失效。Selection 在 Agent 副作用前 single-attempt 消费。
 
 `sessionId` 在当前 DSH runtime 范围内稳定。未来任何 Session-list UI 必须展示它并提供复制操作；当前包没有该 UI。若未来支持多个 runtime，必须另行增加 runtime namespace 或等价寻址机制，不能假定当前 `sessionId` 已是全局 remote address。
 
@@ -139,11 +139,13 @@ control: 'direct' | 'subagent' | 'observe-only'
 
 取消使用 `{ kind: 'hook', reason: 'fleet-cancel' }`。
 
-发送/转向消息来源：
+Direct 发送/转向消息来源：
 
 ```ts
 { kind: 'plugin', plugin: 'dsh-supervisor' }
 ```
+
+Confirmed-target selected `send` / `steer` 使用 versioned `fleet-relay` source。`senderSessionId` 只能来自 selection 绑定的 exact caller Agent，`deliveryId` 由 Provider 生成并用于 receipt correlation。模型可见 header 同时编码 sender 和 delivery id；固定 marker 之后的 body 从独立 text block 开始并保持 untrusted。正文不是授权或 correlation 来源。Relay source 已包含在现有 durable `user/message` 中，不新增 Fleet Session event。`target_ref` / `selection_handle` 不出现在 relay source、body、receipt 或 inspect projection 中，也不进入 transient Provider relay state；正常 DSH tool/call audit 仍保留工具 arguments。
 
 对象范围：
 

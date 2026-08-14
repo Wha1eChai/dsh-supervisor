@@ -1,6 +1,6 @@
 # 分层全景
 
-当前已交付范围是 L0–L2.3，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
+当前已交付范围是 L0–L2.4，产品优先级是同一运行中 DSH runtime（一个 `dsh` 进程）内 live Session 之间的通信。L2b 和 L3–L6 都是未来工作，不构成当前支持声明。
 
 ```text
 L0  仓库骨架 + 可安装 bundle                       已交付
@@ -9,6 +9,7 @@ L2  fleet_* 模型工具（Consumer）                    已交付
 L2.1 AgentRegistry runtime ownership 正确性修复      已交付
 L2.2 caller-bound confirmed target writes            已交付
 L2.3 title-rich discovery + inspect truncation        已交付
+L2.4 attributed confirmed-target relay               已交付
 L2b delegated Session 写路径                         未来
 L3  supervisor Agent preset（条件组合可选能力）       未来
 L4  独立 profile / first-class surface / transport   未来
@@ -61,6 +62,10 @@ Fleet 只读地读取可选 `ctx.sessionTitle` 对 exact live `Session` 的已�
 Inspect 将符合条件的 user/assistant 消息先过滤，再分别报告 `omittedMessages` 与每条摘要的 `textTruncated`，不把 tool、reasoning 或其他消息角色计入 omission。
 
 详见 [phase-l2.3.md](phase-l2.3.md)。
+
+## L2.4 — Attributed Fleet relay（已交付）
+
+Confirmed-target selected `send` / `steer` 使用 Provider 生成的 versioned `fleet-relay` source，exact caller Agent 提供 sender，Provider 生成 opaque delivery correlation；model-visible header 同时编码 sender 和 delivery id，固定 marker 之后的 body 从独立 text block 开始并保持 untrusted；direct API 继续使用 plugin attribution。完整正文、durability 和 inspect projection 规则见 [phase-l2.4.md](phase-l2.4.md)。
 
 ## L3 — Preset（未来）
 

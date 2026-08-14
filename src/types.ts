@@ -1,5 +1,6 @@
-import type { AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { FleetDeliveryId } from './relay.js'
 
 /** Filters applied to the process-local live-agent listing. */
 export interface FleetListFilter {
@@ -17,8 +18,11 @@ export interface FleetCallerOptions {
   callerSessionId?: string
 }
 
-/** Required caller identity for Provider-owned target confirmation. */
+/** Exact live caller capability required for Provider-owned target confirmation. */
 export interface FleetRequiredCallerOptions {
+  /** Exact Agent object supplied by the owning ToolRuntime execution. */
+  callerAgent: Agent
+  /** Session id used only to locate and cross-check the exact Agent object. */
   callerSessionId: string
 }
 
@@ -53,6 +57,14 @@ export interface FleetAgentView {
   updatedAt?: number
 }
 
+/** Narrow durable attribution projected for one Fleet relay message. */
+export interface FleetRelayView {
+  version: 1
+  form: 'relay'
+  senderSessionId: string
+  deliveryId: FleetDeliveryId
+}
+
 /** One plain-text user or assistant message summary. */
 export interface FleetMessageSummary {
   messageId: string
@@ -60,6 +72,8 @@ export interface FleetMessageSummary {
   text: string
   /** Whether this message's text exceeded the configured per-message limit. */
   textTruncated: boolean
+  /** Structured attribution when the message was created by a selected Fleet write. */
+  relay?: FleetRelayView
 }
 
 /** JSON-safe detailed projection of one process-local live agent. */
@@ -92,6 +106,13 @@ export interface FleetTargetInspectOptions extends FleetInspectOptions, FleetReq
 
 /** Required caller identity for one selected message write. */
 export interface FleetSelectedWriteOptions extends FleetRequiredCallerOptions {}
+
+/** JSON-safe receipt for one accepted selected message delivery. */
+export interface FleetDeliveryReceipt {
+  sessionId: string
+  messageId: string
+  deliveryId: FleetDeliveryId
+}
 
 /** Options for canceling through one confirmed target selection. */
 export interface FleetSelectedCancelOptions extends FleetRequiredCallerOptions {

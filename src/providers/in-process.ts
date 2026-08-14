@@ -1,24 +1,27 @@
 import { randomBytes } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, type ContentBlock, type Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ContentBlock, type Message, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-session-title'
 import { classifyAgent, resolveControl } from '../classify.js'
 import { FleetService } from '../service.js'
+import { parseFleetRelaySource, type FleetDeliveryId } from '../relay.js'
 import {
   FleetError,
   type FleetAgentKind,
   type FleetAgentView,
   type FleetCallerOptions,
   type FleetCancelOptions,
+  type FleetDeliveryReceipt,
   type FleetEvent,
   type FleetEventType,
   type FleetInspectOptions,
   type FleetInspectView,
   type FleetListFilter,
   type FleetMessageSummary,
+  type FleetRelayView,
   type FleetSelectedCancelOptions,
   type FleetSelectedWriteOptions,
   type FleetTargetInspectOptions,
@@ -137,7 +140,7 @@ export class InProcessFleetProvider extends FleetService {
   /** Issue caller-bound short-lived references for live targets. */
   listTargets(options: FleetTargetListOptions): FleetTargetView[] {
     this.requireActive()
-    const caller = this.requireCaller(options.callerSessionId)
+    const caller = this.requireCaller(options.callerAgent, options.callerSessionId)
     const now = Date.now()
     this.pruneExpired(now)
     const agents = this.ctx.agents.list()
@@ -161,7 +164,7 @@ export class InProcessFleetProvider extends FleetService {
     this.requireActive()
     const now = Date.now()
     this.pruneExpired(now)
-    const record = this.requireTargetReference(targetRef, options.callerSessionId)
+    const record = this.requireTargetReference(targetRef, options.callerAgent, options.callerSessionId)
     const agent = this.inspectAgent(record.targetAgent, options)
     if (record.callerAgent === record.targetAgent || agent.kind !== 'root') return { agent }
     return { agent, selection: this.issueSelection(record, now) }
@@ -172,14 +175,15 @@ export class InProcessFleetProvider extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string } {
+  ): FleetDeliveryReceipt {
     this.requireActive()
-    const message = createFleetMessage(text)
-    const record = this.requireSelection(selectionHandle, options.callerSessionId)
+    validateMessageText(text)
+    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
     const agent = this.requireWritableSelected(record)
+    const message = createFleetRelayMessage(text, record.callerAgent)
     this.selections.delete(selectionHandle)
     agent.followup(message)
-    return { sessionId: record.targetSessionId, messageId: message.id }
+    return { sessionId: record.targetSessionId, messageId: message.id, deliveryId: relaySource(message).deliveryId }
   }
 
   /** Submit steering through one single-attempt confirmed target selection. */
@@ -187,14 +191,15 @@ export class InProcessFleetProvider extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string } {
+  ): FleetDeliveryReceipt {
     this.requireActive()
-    const message = createFleetMessage(text)
-    const record = this.requireSelection(selectionHandle, options.callerSessionId)
+    validateMessageText(text)
+    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
     const agent = this.requireWritableSelected(record)
+    const message = createFleetRelayMessage(text, record.callerAgent)
     this.selections.delete(selectionHandle)
     agent.steer(message)
-    return { sessionId: record.targetSessionId, messageId: message.id }
+    return { sessionId: record.targetSessionId, messageId: message.id, deliveryId: relaySource(message).deliveryId }
   }
 
   /** Cancel through one single-attempt confirmed target selection. */
@@ -203,7 +208,7 @@ export class InProcessFleetProvider extends FleetService {
     options: FleetSelectedCancelOptions,
   ): { sessionId: string; accepted: true } {
     this.requireActive()
-    const record = this.requireSelection(selectionHandle, options.callerSessionId)
+    const record = this.requireSelection(selectionHandle, options.callerAgent, options.callerSessionId)
     const agent = this.requireWritableSelected(record)
     this.selections.delete(selectionHandle)
     agent.cancel({ kind: 'hook', reason: 'fleet-cancel' }, { keepInbox: options.keepInbox })
@@ -283,12 +288,12 @@ export class InProcessFleetProvider extends FleetService {
   }
 
   /** Resolve an exact live caller before issuing or using confirmed-target state. */
-  private requireCaller(callerSessionId: string): Agent {
+  private requireCaller(callerAgent: Agent, callerSessionId: string): Agent {
     const caller = this.ctx.agents.get(SessionId(callerSessionId))
-    if (caller === undefined) {
+    if (caller !== callerAgent) {
       throw new FleetError(
         'fleet-caller-unavailable',
-        'fleet-caller-unavailable: the owning Fleet session is not live. No action was taken. '
+        'fleet-caller-unavailable: the owning Fleet session is not the exact live Agent. No action was taken. '
           + 'Do not substitute another Fleet session. Relist or ask the user.',
       )
     }
@@ -328,10 +333,10 @@ export class InProcessFleetProvider extends FleetService {
   }
 
   /** Resolve one caller-bound target reference and invalidate mismatched submissions. */
-  private requireTargetReference(targetRef: string, callerSessionId: string): TargetRecord {
+  private requireTargetReference(targetRef: string, callerAgent: Agent, callerSessionId: string): TargetRecord {
     const record = this.targetReferences.get(targetRef)
     if (record === undefined) throw invalidTargetReference()
-    const caller = this.requireCaller(callerSessionId)
+    const caller = this.requireCaller(callerAgent, callerSessionId)
     if (record.callerSessionId !== callerSessionId || record.callerAgent !== caller) {
       this.targetReferences.delete(targetRef)
       throw invalidTargetReference()
@@ -361,14 +366,14 @@ export class InProcessFleetProvider extends FleetService {
   }
 
   /** Resolve one single-attempt selection and invalidate mismatched submissions. */
-  private requireSelection(selectionHandle: string, callerSessionId: string): SelectionRecord {
+  private requireSelection(selectionHandle: string, callerAgent: Agent, callerSessionId: string): SelectionRecord {
     const now = Date.now()
     this.pruneExpired(now)
     const record = this.selections.get(selectionHandle)
     if (record === undefined) throw invalidSelection()
     let caller: Agent
     try {
-      caller = this.requireCaller(callerSessionId)
+      caller = this.requireCaller(callerAgent, callerSessionId)
     } catch (error) {
       this.selections.delete(selectionHandle)
       throw error
@@ -447,7 +452,8 @@ export class InProcessFleetProvider extends FleetService {
     const originalText = extractText(message.content)
     const textTruncated = originalText.length > this.config.maxMessageTextChars
     const text = originalText.slice(0, this.config.maxMessageTextChars)
-    return { messageId: message.id, role: message.role, text, textTruncated }
+    const relay = getRelayView(message)
+    return { messageId: message.id, role: message.role, text, textTruncated, ...(relay === undefined ? {} : { relay }) }
   }
 
   /** Classify one live event subject and deliver its projected lifecycle event. */
@@ -488,7 +494,7 @@ export class InProcessFleetProvider extends FleetService {
 }
 
 /** Build the exact model-facing message required by Fleet root writes. */
-function createToken(prefix: string, records: ReadonlyMap<string, unknown>): string {
+function createToken(prefix: string, records: { has(value: string): boolean }): string {
   let token: string
   do {
     token = `${prefix}${randomBytes(12).toString('base64url')}`
@@ -513,13 +519,48 @@ function invalidSelection(): FleetError {
 }
 
 function createFleetMessage(text: string) {
-  if (text.trim().length === 0) {
-    throw new FleetError('fleet-empty-text', 'fleet-empty-text: message text must not be empty')
-  }
+  validateMessageText(text)
   return createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'plugin', plugin: 'dsh-supervisor' },
   })
+}
+
+function createFleetRelayMessage(text: string, caller: Agent): UserMessage {
+  validateMessageText(text)
+  const deliveryId = `fd_${randomBytes(12).toString('base64url')}` as FleetDeliveryId
+  const senderSessionId = caller.id
+  const encodedSender = encodeURIComponent(senderSessionId)
+  const encodedDelivery = encodeURIComponent(deliveryId)
+  return createUserMessage({
+    content: [
+      { type: 'text', text: `Fleet relay from session ${encodedSender} (delivery ${encodedDelivery}):\n[untrusted body begins]\n` },
+      { type: 'text', text },
+    ],
+    source: { kind: 'fleet-relay', version: 1, form: 'relay', senderSessionId, deliveryId },
+  })
+}
+
+function validateMessageText(text: string): void {
+  if (text.trim().length === 0) {
+    throw new FleetError('fleet-empty-text', 'fleet-empty-text: message text must not be empty')
+  }
+}
+
+function relaySource(message: UserMessage): { deliveryId: FleetDeliveryId } {
+  if (message.source.kind !== 'fleet-relay') throw new Error('dsh-supervisor: missing Fleet relay source')
+  return message.source
+}
+
+function getRelayView(message: Message): FleetRelayView | undefined {
+  const source = parseFleetRelaySource(message.source)
+  if (source === undefined) return undefined
+  return {
+    version: source.version,
+    form: source.form,
+    senderSessionId: source.senderSessionId,
+    deliveryId: source.deliveryId,
+  }
 }
 
 /** Keep only the user and assistant roles promised by Fleet inspect. */

@@ -44,7 +44,7 @@ Consumer 仍只依赖 `ctx.fleet`。只有 Provider 持有 exact Agent identity�
 
 `target_ref` 和 `selection_handle` 都绑定：
 
-- owning caller 的 exact Agent 对象与 `callerSessionId`；
+- owning caller 的 exact Agent 对象与 `callerSessionId`；确认 lane 的 Service options 必须同时携带 exact Agent，字符串 id 只作一致性校验；
 - target 的 exact Agent 对象与原始 `sessionId`；
 - 当前 Provider 实例；
 - expiry。
@@ -63,9 +63,12 @@ Self target 和 runtime delegated target 可以 inspect，但不会收到 select
 |---|---|---|
 | `fleet_list` | `roots_only?`, `running_only?` | `{ agents: FleetTargetView[], count }` |
 | `fleet_inspect` | `target_ref`, `tail_messages?` | `{ agent: FleetInspectView, selection? }` |
-| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId }` |
-| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId }` |
+| `fleet_send` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
+| `fleet_steer` | `selection_handle`, `text` | `{ sessionId, messageId, deliveryId }` |
+
 | `fleet_cancel` | `selection_handle`, `keep_inbox?` | `{ sessionId, accepted: true }` |
+
+L2.4 augments both selected-write outputs with the Provider-generated opaque `deliveryId`; see [phase-l2.4.md](phase-l2.4.md).
 
 五个工具都要求 owning Agent，并只从 `exec.agent.session.id` 派生 caller。List/inspect 保持 parallel；write 保持 exclusive。
 

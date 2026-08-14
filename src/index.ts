@@ -7,6 +7,7 @@ export { InProcessFleetProvider } from './providers/in-process.js'
 export type { InProcessFleetConfig } from './providers/in-process.js'
 export { FleetService } from './service.js'
 export * from './types.js'
+export type { FleetDeliveryId, FleetRelayMessageSource } from './relay.js'
 
 /** Deployment tunables for the in-process Fleet provider. */
 export interface Config {

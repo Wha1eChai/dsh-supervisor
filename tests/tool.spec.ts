@@ -13,6 +13,7 @@ import { FleetService } from '../src/service.js'
 import { FleetError } from '../src/types.js'
 import type {
   FleetAgentView,
+  FleetDeliveryReceipt,
   FleetInspectOptions,
   FleetInspectView,
   FleetListFilter,
@@ -121,7 +122,7 @@ class RecordingFleet extends FleetService {
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string } {
+  ): FleetDeliveryReceipt {
     this.calls.sendSelected.push([selectionHandle, text, options])
     if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
@@ -129,14 +130,14 @@ class RecordingFleet extends FleetService {
         'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { sessionId: 'target', messageId: 'send-message' }
+    return { sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' as FleetDeliveryReceipt['deliveryId'] }
   }
 
   steerSelected(
     selectionHandle: string,
     text: string,
     options: FleetSelectedWriteOptions,
-  ): { sessionId: string; messageId: string } {
+  ): FleetDeliveryReceipt {
     this.calls.steerSelected.push([selectionHandle, text, options])
     if (selectionHandle === 'fs_invalid') {
       throw new FleetError(
@@ -144,7 +145,7 @@ class RecordingFleet extends FleetService {
         'fleet-selection-invalid: No action was taken. Do not substitute another Fleet session.',
       )
     }
-    return { sessionId: 'target', messageId: 'steer-message' }
+    return { sessionId: 'target', messageId: 'steer-message', deliveryId: 'fd-steer' as FleetDeliveryReceipt['deliveryId'] }
   }
 
   cancelSelected(
@@ -285,10 +286,14 @@ describe('Fleet tool namespace and configuration', () => {
       selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       text: { type: 'string', description: 'Follow-up message text.' },
     }, ['selection_handle', 'text']))
+    expect(schemas.get('fleet_send')?.description).toContain('may consume model and tool resources')
+    expect(schemas.get('fleet_send')?.description).toContain('synchronous inbox acceptance only')
     expect(schemas.get('fleet_steer')?.parameters).toEqual(parameterSchema({
       selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       text: { type: 'string', description: 'Steering message text.' },
     }, ['selection_handle', 'text']))
+    expect(schemas.get('fleet_steer')?.description).toContain('may consume model and tool resources')
+    expect(schemas.get('fleet_steer')?.description).toContain('synchronous inbox acceptance only')
     expect(schemas.get('fleet_cancel')?.parameters).toEqual(parameterSchema({
       selection_handle: { type: 'string', description: 'Single-attempt selection from fleet_inspect.' },
       keep_inbox: { type: 'boolean', description: 'Preserve queued messages while canceling active work.' },
@@ -298,6 +303,9 @@ describe('Fleet tool namespace and configuration', () => {
       expect(Object.keys(schema.parameters.properties ?? {})).not.toContain('caller_session_id')
       if (schema.name !== 'fleet_list') {
         expect(Object.keys(schema.parameters.properties ?? {})).not.toContain('session_id')
+      }
+      for (const forbidden of ['caller_session_id', 'sender_session_id', 'target_session_id', 'title', 'relay']) {
+        expect(Object.keys(schema.parameters.properties ?? {})).not.toContain(forbidden)
       }
     }
   })
@@ -329,14 +337,14 @@ describe('Fleet read tools', () => {
       roots_only: true, running_only: false,
     }, { agent: owner }))
     expect(fleet.calls.listTargets).toEqual([{
-      rootsOnly: true, runningOnly: false, callerSessionId: 'caller',
+      rootsOnly: true, runningOnly: false, callerAgent: owner, callerSessionId: 'caller',
     }])
     expect(empty.value).toEqual({ agents: [], count: 0 })
     expect(text(empty)).toBe('No live Fleet sessions.')
 
     fleet.listValue = [RUNNING_TARGET, DELEGATED_TARGET]
     const populated = success(await call(ctx, 'fleet_list', {}, { agent: owner }))
-    expect(fleet.calls.listTargets.at(-1)).toEqual({ callerSessionId: 'caller' })
+    expect(fleet.calls.listTargets.at(-1)).toEqual({ callerAgent: owner, callerSessionId: 'caller' })
     expect(populated.value).toEqual({ agents: [RUNNING_TARGET, DELEGATED_TARGET], count: 2 })
     expect(text(populated)).toBe(`Found 2 live Fleet sessions: ${JSON.stringify([RUNNING_TARGET, DELEGATED_TARGET])}`)
     expect(ctx.tools.get('fleet_list')?.presentCall?.({})).toEqual({
@@ -363,7 +371,7 @@ describe('Fleet read tools', () => {
       target_ref: 'ft_target', tail_messages: 2,
     }, { agent: owner }))
     expect(fleet.calls.inspectTarget).toEqual([['ft_target', {
-      callerSessionId: 'caller', tailMessages: 2,
+      callerAgent: owner, callerSessionId: 'caller', tailMessages: 2,
     }]])
     expect(result.value).toEqual(fleet.inspectValue)
     expect(text(result)).toBe(
@@ -385,7 +393,7 @@ describe('Fleet read tools', () => {
     const withoutTail = success(await call(ctx, 'fleet_inspect', {
       target_ref: 'ft_target',
     }, { agent: owner }))
-    expect(fleet.calls.inspectTarget.at(-1)).toEqual(['ft_target', { callerSessionId: 'caller' }])
+    expect(fleet.calls.inspectTarget.at(-1)).toEqual(['ft_target', { callerAgent: owner, callerSessionId: 'caller' }])
     expect(withoutTail.value).toEqual(fleet.inspectValue)
 
     for (const invalid of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
@@ -425,16 +433,17 @@ describe('Fleet read tools', () => {
 })
 
 describe('Fleet write tools', () => {
-  it('6. maps selected send/steer, original text, and caller identity; invalid selections fail closed', async () => {
+  it('6. maps selected send/steer, original text, and caller identity; model identity fields do not override it', async () => {
     const { ctx, fleet } = await harness()
     const owner = fakeAgent('caller')
 
     const sent = success(await call(ctx, 'fleet_send', {
       selection_handle: 'fs_send', text: '  keep spacing  ',
+      caller_session_id: 'forged-caller', sender_session_id: 'forged-sender', target_session_id: 'forged-target',
     }, { agent: owner }))
-    expect(fleet.calls.sendSelected).toEqual([['fs_send', '  keep spacing  ', { callerSessionId: 'caller' }]])
-    expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message' })
-    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target.')
+    expect(fleet.calls.sendSelected).toEqual([['fs_send', '  keep spacing  ', { callerAgent: owner, callerSessionId: 'caller' }]])
+    expect(sent.value).toEqual({ sessionId: 'target', messageId: 'send-message', deliveryId: 'fd-send' })
+    expect(text(sent)).toBe('Queued follow-up send-message for confirmed Fleet session target. Delivery fd-send.')
     expect(ctx.tools.get('fleet_send')?.presentCall?.({
       selection_handle: 'fs_send', text: 'secret body',
     })).toEqual({
@@ -445,9 +454,9 @@ describe('Fleet write tools', () => {
     const steered = success(await call(ctx, 'fleet_steer', {
       selection_handle: 'fs_steer', text: 'turn left',
     }, { agent: owner }))
-    expect(fleet.calls.steerSelected).toEqual([['fs_steer', 'turn left', { callerSessionId: 'caller' }]])
-    expect(steered.value).toEqual({ sessionId: 'target', messageId: 'steer-message' })
-    expect(text(steered)).toBe('Submitted steering message steer-message for confirmed Fleet session target.')
+    expect(fleet.calls.steerSelected).toEqual([['fs_steer', 'turn left', { callerAgent: owner, callerSessionId: 'caller' }]])
+    expect(steered.value).toEqual({ sessionId: 'target', messageId: 'steer-message', deliveryId: 'fd-steer' })
+    expect(text(steered)).toBe('Submitted steering message steer-message for confirmed Fleet session target. Delivery fd-steer.')
     expect(ctx.tools.get('fleet_steer')?.presentCall?.({
       selection_handle: 'fs_steer', text: 'secret body',
     })).toEqual({
@@ -520,8 +529,8 @@ describe('Fleet write tools', () => {
     }, { agent: owner }))
 
     expect(fleet.calls.cancelSelected).toEqual([
-      ['fs_cancel', { callerSessionId: 'caller' }],
-      ['fs_cancel_2', { callerSessionId: 'caller', keepInbox: false }],
+      ['fs_cancel', { callerAgent: owner, callerSessionId: 'caller' }],
+      ['fs_cancel_2', { callerAgent: owner, callerSessionId: 'caller', keepInbox: false }],
     ])
     expect(omitted.value).toEqual({ sessionId: 'target', accepted: true })
     expect(supplied.value).toEqual({ sessionId: 'target', accepted: true })
@@ -604,7 +613,7 @@ describe('Fleet tool execution policy and schemas', () => {
       selection_handle: 'fs_target', text: 'message',
     }, { agent: owner, signal: controller.signal })
 
-    expect(fleet.calls.sendSelected).toEqual([['fs_target', 'message', { callerSessionId: 'caller' }]])
+    expect(fleet.calls.sendSelected).toEqual([['fs_target', 'message', { callerAgent: owner, callerSessionId: 'caller' }]])
     expect(result).toMatchObject({
       content: [{ type: 'text', text: 'Error: tool call aborted' }],
       isError: true,
@@ -662,6 +671,7 @@ describe('Fleet tool execution policy and schemas', () => {
     expect(source).not.toContain('ctx.sessions')
     expect(source).not.toContain('ctx.subagents')
     expect(source).not.toContain('callerSessionId: args')
+    expect(source.match(/callerAgent: exec\.agent/g)).toHaveLength(5)
     expect(source.match(/callerSessionId: exec\.agent\.session\.id/g)).toHaveLength(5)
   })
 })

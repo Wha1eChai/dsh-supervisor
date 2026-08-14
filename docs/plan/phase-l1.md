@@ -104,7 +104,7 @@ interface Config {
 - delegated + `ctx.get('subagents')` 存在 → `control: 'subagent'`，当前写入仍抛 `fleet-delegated-write-deferred`。
 - delegated + 无 subagents → `control: 'observe-only'`，写入抛 `fleet-observe-only`。
 - root → `control: 'direct'`，`send`=`followup`，`steer`=`steer`，`cancel`=`cancel({ kind: 'hook', reason: 'fleet-cancel' }, { keepInbox })`。
-- 消息：`createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'dsh-supervisor' } })`。
+- direct 消息：`createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'dsh-supervisor' } })`；confirmed-target selected `send` / `steer` 的 relay source 见 [phase-l2.4.md](phase-l2.4.md)。
 - `subscribe`：监听 `agent/created`、`agent/status`、`agent/disposed`。监听必须挂在 `ctx.effect` / `ctx.on` 上，卸载即摘掉；Fleet listener 失败只记录，不向权威 Agent 事件传播。
 
 `blank`：无 `turn/start` 则为 true（与官方 list 语义对齐的简化版即可，测试钉死）。

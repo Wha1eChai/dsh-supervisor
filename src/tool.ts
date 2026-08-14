@@ -47,6 +47,16 @@ const FLEET_MESSAGE_VALUE_SCHEMA = {
     role: { type: 'string', enum: ['user', 'assistant'], required: true },
     text: { type: 'string', required: true },
     textTruncated: { type: 'boolean', required: true },
+    relay: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        version: { type: 'integer', const: 1, required: true },
+        form: { type: 'string', enum: ['relay'], required: true },
+        senderSessionId: { type: 'string', required: true },
+        deliveryId: { type: 'string', required: true },
+      },
+    },
   },
 } as const
 
@@ -103,6 +113,7 @@ const FLEET_WRITE_VALUE_SCHEMA = {
   properties: {
     sessionId: { type: 'string', required: true },
     messageId: { type: 'string', required: true },
+    deliveryId: { type: 'string', required: true },
   },
 } as const
 
@@ -190,6 +201,7 @@ export function apply(ctx: Context, config: Config): void {
       async execute(args, exec) {
         if (exec.agent === undefined) throw new Error('fleet_list requires an owning agent session')
         const agents = ctx.fleet.listTargets({
+          callerAgent: exec.agent,
           callerSessionId: exec.agent.session.id,
           ...(args.roots_only === undefined ? {} : { rootsOnly: args.roots_only }),
           ...(args.running_only === undefined ? {} : { runningOnly: args.running_only }),
@@ -219,6 +231,7 @@ export function apply(ctx: Context, config: Config): void {
         const targetRef = handle(args.target_ref, 'target_ref')
         const tail = tailMessages(args.tail_messages)
         return ctx.fleet.inspectTarget(targetRef, {
+          callerAgent: exec.agent,
           callerSessionId: exec.agent.session.id,
           ...(tail === undefined ? {} : { tailMessages: tail }),
         })
@@ -240,7 +253,7 @@ export function apply(ctx: Context, config: Config): void {
     if (config.controlMode !== 'read-only') {
       yield ctx.tools.register(defineTool({
         name: 'fleet_send',
-        description: 'Queue a follow-up message for a live root Fleet session.',
+        description: 'Wake a live root Fleet session with a follow-up; may consume model and tool resources. Receipt means synchronous inbox acceptance only—not claim, turn, or reply completion.',
         parameters: {
           selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           text: { type: 'string', required: true, description: 'Follow-up message text.' },
@@ -249,7 +262,7 @@ export function apply(ctx: Context, config: Config): void {
           schema: FLEET_WRITE_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}.`,
+            text: `Queued follow-up ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}.`
           }],
         },
         async execute(args, exec) {
@@ -258,6 +271,7 @@ export function apply(ctx: Context, config: Config): void {
           const selectionHandle = handle(args.selection_handle, 'selection_handle')
           requireText(args.text)
           return ctx.fleet.sendSelected(selectionHandle, args.text, {
+            callerAgent: exec.agent,
             callerSessionId: exec.agent.session.id,
           })
         },
@@ -274,7 +288,7 @@ export function apply(ctx: Context, config: Config): void {
 
       yield ctx.tools.register(defineTool({
         name: 'fleet_steer',
-        description: 'Submit a steering message to a live root Fleet session.',
+        description: 'Change a live root Fleet session\'s direction; may consume model and tool resources. Receipt means synchronous inbox acceptance only—not claim, turn, or reply completion.',
         parameters: {
           selection_handle: { type: 'string', required: true, description: 'Single-attempt selection from fleet_inspect.' },
           text: { type: 'string', required: true, description: 'Steering message text.' },
@@ -283,7 +297,7 @@ export function apply(ctx: Context, config: Config): void {
           schema: FLEET_WRITE_VALUE_SCHEMA,
           render: (_args, value) => [{
             type: 'text',
-            text: `Submitted steering message ${value.messageId} for confirmed Fleet session ${value.sessionId}.`,
+            text: `Submitted steering message ${value.messageId} for confirmed Fleet session ${value.sessionId}. Delivery ${value.deliveryId}.`
           }],
         },
         async execute(args, exec) {
@@ -292,6 +306,7 @@ export function apply(ctx: Context, config: Config): void {
           const selectionHandle = handle(args.selection_handle, 'selection_handle')
           requireText(args.text)
           return ctx.fleet.steerSelected(selectionHandle, args.text, {
+            callerAgent: exec.agent,
             callerSessionId: exec.agent.session.id,
           })
         },
@@ -327,6 +342,7 @@ export function apply(ctx: Context, config: Config): void {
           if (exec.agent === undefined) throw new Error('fleet_cancel requires an owning agent session')
           const selectionHandle = handle(args.selection_handle, 'selection_handle')
           return ctx.fleet.cancelSelected(selectionHandle, {
+            callerAgent: exec.agent,
             callerSessionId: exec.agent.session.id,
             ...(args.keep_inbox === undefined ? {} : { keepInbox: args.keep_inbox }),
           })
