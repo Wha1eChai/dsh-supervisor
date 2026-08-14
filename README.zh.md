@@ -4,7 +4,7 @@
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的社区插件，当前专注于同一运行中 DSH runtime（即同一个 `dsh` 进程）内 live Session 之间的发现、寻址和通信。它提供可替换的 `ctx.fleet` 服务，并通过该服务提供模型可调用的 `fleet_*` 工具。
 
-> **状态：目标版本为 `0.1.0-rc.1` 的 prerelease、Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。目标 prerelease 使用 `next` dist-tag，不承诺 stable 兼容性。
+> **状态：`0.1.0-rc.1` prerelease、Tool Preview（L0 + L1 + L2 + L2.1 + L2.2 + L2.3 + L2.4 + L2.5）。** Fleet 现在支持可选的日志标题展示、inspect 截断事实区分、confirmed-target attributed relay，以及 exact claimed-turn reply observation。Fleet 服务、authoritative runtime ownership 分类、五个核心工具和可选 Jobs Consumer 已经实现，并通过构建后 package entry 的 keyless 测试。当前产品面是 API 和模型工具，不是多 Session UI 或远程控制服务。该 prerelease 使用 `next` dist-tag，不承诺 stable 兼容性。
 
 这是独立的社区项目，与 DeepSeek AI 不存在隶属或官方背书关系。它运行在现有 DSH 进程内，不启动 daemon、第二套 Agent runtime 或独立网络端口。
 
@@ -83,7 +83,14 @@ API、配置、工具和错误码见 [docs/reference/fleet.md](docs/reference/fl
 
 ## 安装
 
-目前尚未发布 npm 包。目标首个 prerelease 是 `next` dist-tag 下的 `0.1.0-rc.1`。发布前请使用本地 checkout 或固定 commit 的 GitHub 源安装；发布后应指定完整版本，不要依赖裸包名的默认 dist-tag。
+请通过完整版本或 `next` dist-tag 安装首个 prerelease。只写裸包名会选择 npm 的 `latest` tag，不属于 prerelease 安装。
+
+```sh
+dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
+dsh --profile web --dump-config
+```
+
+评估包时建议使用隔离的 `DSH_HOME`，避免修改已有 profile。下面仍提供本地 checkout 和固定 commit 的 GitHub 安装方式。
 
 ### 本地 checkout
 
@@ -184,7 +191,7 @@ pnpm run check:packed -- .pack-output/dev
 - [ ] **L4+** — 未来独立 profile、一等产品面和 transport；这些都不是当前支持。
 - [ ] **L5 可选项** — 在未来受支持产品面之上的可选 Electron wrapper。
 - [ ] **L6+** — 未来 daemon 和多 runtime Fleet Provider。
-- [ ] 完成隔离 source/tarball 验证和用户可见验收后，以 `next` dist-tag 发布 `0.1.0-rc.1`。
+- **Registry prerelease** — 完成隔离 source/tarball 验证和用户可见验收后，以 `next` dist-tag 发布 `0.1.0-rc.1`。
 - [ ] 为每个支持的 DSH release candidate 添加兼容性 CI。
 
 详细阶段边界见 [docs/plan/layers.md](docs/plan/layers.md)。
