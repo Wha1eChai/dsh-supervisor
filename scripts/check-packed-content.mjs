@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { spawn } from 'node:child_process'
+import { extract, list } from 'tar'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const requestedDirectory = process.argv.slice(2).find(argument => argument !== '--')
@@ -14,9 +14,8 @@ const tarballs = entries.filter(entry => entry.isFile() && entry.name.endsWith('
 if (tarballs.length !== 1) fail(`Expected exactly one .tgz in ${outputDirectory}, found ${tarballs.length}`)
 const tarball = join(outputDirectory, tarballs[0].name)
 
-const tarballArgument = relative(root, tarball).replaceAll('\\', '/')
-const archiveListing = await command('tar', ['-tzf', tarballArgument], root)
-const files = new Set(archiveListing.stdout.split(/\r?\n/).filter(Boolean))
+const files = new Set()
+await list({ file: tarball, onentry: entry => files.add(entry.path) })
 const required = [
   'package/package.json',
   'package/cordis.patch.yml',
@@ -44,8 +43,7 @@ for (const file of files) {
 
 const tempDirectory = await mkdtemp(join(root, '.pack-output-check-'))
 try {
-  const tempDirectoryArgument = relative(root, tempDirectory).replaceAll('\\', '/')
-  await command('tar', ['-xzf', tarballArgument, '-C', tempDirectoryArgument], root)
+  await extract({ file: tarball, cwd: tempDirectory })
   const packedPackage = JSON.parse(await readFile(join(tempDirectory, 'package/package.json'), 'utf8'))
   if (packedPackage.version !== packageJson.version) {
     fail(`Packed version ${packedPackage.version} does not match root version ${packageJson.version}`)
@@ -86,21 +84,6 @@ async function verifyEntry(file, expectedName, expectedInject) {
   if (module.name !== expectedName) fail(`${file} has unexpected name ${String(module.name)}`)
   if (JSON.stringify(module.inject) !== JSON.stringify(expectedInject)) fail(`${file} has unexpected inject metadata`)
   for (const key of ['Config', 'apply']) if (typeof module[key] !== 'function') fail(`${file} is missing ${key}`)
-}
-
-async function command(file, args, cwd) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(file, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', chunk => { stdout += chunk })
-    child.stderr.on('data', chunk => { stderr += chunk })
-    child.once('error', reject)
-    child.once('close', code => {
-      if (code === 0) resolvePromise({ stdout, stderr })
-      else reject(new Error(`${file} ${args.join(' ')} exited with ${code}: ${stderr}`))
-    })
-  })
 }
 
 function fail(message) {

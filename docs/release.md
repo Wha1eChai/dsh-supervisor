@@ -25,6 +25,8 @@ pnpm publish --access public --tag next
 
 ## Local gates
 
+POSIX shell：
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm run typecheck
@@ -34,38 +36,120 @@ rm -rf .pack-output/release
 mkdir -p .pack-output/release
 pnpm pack --pack-destination .pack-output/release
 pnpm run check:packed -- .pack-output/release
+git diff --check
+```
+
+PowerShell：
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm test
+pnpm run build
+if (Test-Path .pack-output\release) { Remove-Item .pack-output\release -Recurse -Force }
+New-Item -ItemType Directory -Path .pack-output\release -Force | Out-Null
+pnpm pack --pack-destination .pack-output\release
+pnpm run check:packed -- .pack-output\release
+git diff --check
 ```
 
 ## Install-source verification
 
-发布前分别验证三种输入：
+发布前分别验证三种输入。每个流程都使用单独的 `DSH_HOME`，避免修改现有用户 profile。
 
-Source checkout：
+Source checkout（POSIX shell）：
 
 ```sh
+export DSH_HOME="$PWD/.dsh-cross-session-source-home"
 dsh plugin --profile web add /absolute/path/to/dsh-cross-session
 dsh --profile web --dump-config
 ```
 
-Packed tarball：
+Source checkout（PowerShell）：
+
+```powershell
+$env:DSH_HOME = "$PWD\.dsh-cross-session-source-home"
+dsh plugin --profile web add D:\path\to\dsh-cross-session
+dsh --profile web --dump-config
+```
+
+Packed tarball（POSIX shell）：
 
 ```sh
+export DSH_HOME="$PWD/.dsh-cross-session-tarball-home"
 pnpm pack --pack-destination .pack-output/release
 dsh plugin --profile web add /absolute/path/to/.pack-output/release/wha1echai-dsh-cross-session-0.1.0-rc.1.tgz
 dsh --profile web --dump-config
 ```
 
-Registry package：
+Packed tarball（PowerShell）：
 
-```sh
-pnpm add @wha1echai/dsh-cross-session@0.1.0-rc.1 --dir .dsh-cross-session-release-consumer
+```powershell
+$env:DSH_HOME = "$PWD\.dsh-cross-session-tarball-home"
+pnpm pack --pack-destination .pack-output\release
+dsh plugin --profile web add D:\path\to\.pack-output\release\wha1echai-dsh-cross-session-0.1.0-rc.1.tgz
+dsh --profile web --dump-config
 ```
 
-The registry consumer must resolve the packed JavaScript and declaration entry points without a sibling harness checkout. The DSH plugin install is the authoritative bundle verification for the source and tarball cases.
+Registry package（POSIX shell）：
+
+```sh
+export DSH_HOME="$PWD/.dsh-cross-session-registry-home"
+rm -rf .dsh-cross-session-release-consumer
+mkdir -p .dsh-cross-session-release-consumer
+pnpm add @wha1echai/dsh-cross-session@0.1.0-rc.1 --dir .dsh-cross-session-release-consumer
+node --input-type=module <<'NODE'
+import * as index from './.dsh-cross-session-release-consumer/node_modules/@wha1echai/dsh-cross-session/dist/index.js'
+import * as tool from './.dsh-cross-session-release-consumer/node_modules/@wha1echai/dsh-cross-session/dist/tool.js'
+import packageJson from './.dsh-cross-session-release-consumer/node_modules/@wha1echai/dsh-cross-session/package.json' with { type: 'json' }
+
+for (const [name, module] of [['index', index], ['tool', tool]]) {
+  if ('default' in module) throw new Error(`${name} has a runtime default export`)
+  for (const key of ['name', 'inject', 'Config', 'apply']) {
+    if (!(key in module)) throw new Error(`${name} is missing ${key}`)
+  }
+}
+if (packageJson.types !== './dist/index.d.ts') throw new Error('unexpected declaration entry')
+if (packageJson.exports['./tool'].types !== './dist/tool.d.ts') throw new Error('unexpected tool declaration entry')
+console.log('Registry package exports verified')
+NODE
+dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
+dsh --profile web --dump-config
+```
+
+Registry package（PowerShell）：
+
+```powershell
+$env:DSH_HOME = "$PWD\.dsh-cross-session-registry-home"
+if (Test-Path .dsh-cross-session-release-consumer) { Remove-Item .dsh-cross-session-release-consumer -Recurse -Force }
+New-Item -ItemType Directory -Path .dsh-cross-session-release-consumer -Force | Out-Null
+pnpm add @wha1echai/dsh-cross-session@0.1.0-rc.1 --dir .dsh-cross-session-release-consumer
+@'
+import * as index from './.dsh-cross-session-release-consumer/node_modules/@wha1echai/dsh-cross-session/dist/index.js'
+import * as tool from './.dsh-cross-session-release-consumer/node_modules/@wha1echai/dsh-cross-session/dist/tool.js'
+import packageJson from './.dsh-cross-session-release-consumer/node_modules/@wha1echai/dsh-cross-session/package.json' with { type: 'json' }
+
+for (const [name, module] of [['index', index], ['tool', tool]]) {
+  if ('default' in module) throw new Error(`${name} has a runtime default export`)
+  for (const key of ['name', 'inject', 'Config', 'apply']) {
+    if (!(key in module)) throw new Error(`${name} is missing ${key}`)
+  }
+}
+if (packageJson.types !== './dist/index.d.ts') throw new Error('unexpected declaration entry')
+if (packageJson.exports['./tool'].types !== './dist/tool.d.ts') throw new Error('unexpected tool declaration entry')
+console.log('Registry package exports verified')
+'@ | node --input-type=module
+dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
+dsh --profile web --dump-config
+```
+
+The registry flow requires `0.1.0-rc.1` to be available from the configured npm registry. It validates the package's public JavaScript and declaration entries, then uses the official DSH plugin installer and `--dump-config` to verify that both bundle rows load. Do not substitute a sibling harness checkout for the registry package.
 
 ## Prerelease installation
 
 Prerelease 安装必须指定完整版本或 `next` tag，不能用裸包名依赖 npm 的默认 `latest` 选择。发布后在隔离 home 中验证：
+
+POSIX shell：
 
 ```sh
 export DSH_HOME="$PWD/.dsh-cross-session-release-home"
@@ -85,16 +169,36 @@ dsh --profile web --dump-config
 
 ## Rollback
 
-从已安装版本回退到指定 prerelease：
+回滚操作也必须先切换到专用 `DSH_HOME`，避免修改其他 profile。POSIX shell：
 
 ```sh
+export DSH_HOME="$PWD/.dsh-cross-session-release-home"
+dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
+dsh --profile web --dump-config
+```
+
+PowerShell：
+
+```powershell
+$env:DSH_HOME = "$PWD\.dsh-cross-session-release-home"
 dsh plugin --profile web add @wha1echai/dsh-cross-session@0.1.0-rc.1
 dsh --profile web --dump-config
 ```
 
 完全移除：
 
+POSIX shell：
+
 ```sh
+export DSH_HOME="$PWD/.dsh-cross-session-release-home"
+dsh plugin --profile web remove @wha1echai/dsh-cross-session
+dsh --profile web --dump-config
+```
+
+PowerShell：
+
+```powershell
+$env:DSH_HOME = "$PWD\.dsh-cross-session-release-home"
 dsh plugin --profile web remove @wha1echai/dsh-cross-session
 dsh --profile web --dump-config
 ```
